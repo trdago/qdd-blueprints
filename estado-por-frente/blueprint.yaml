@@ -1,0 +1,155 @@
+# Blueprint QDD: estado por frente.
+# Cómo reporta el avance cualquier proyecto (con agentes o con personas): una tabla de frentes × etapas con reglas de
+# honestidad fijas. Lo que cambia entre proyectos son las etapas (columnas); las invariantes no se negocian.
+#
+#   qdd blueprint add estado-por-frente --ref v1.0.0
+#   qdd blueprint apply estado-por-frente
+#   qdd modules approve estado-por-frente
+id: estado-por-frente
+nombre: Estado por frente
+version: 1.0.0
+licencia: Propietaria — uso interno
+descripcion: >
+  Reporte de avance en una tabla de frentes (filas) por etapas (columnas), con un estado por celda y reglas de evidencia
+  que permiten auditarlo, retomarlo sin perder trabajo y agregarlo con el de otros proyectos.
+
+vocabulario:
+  - termino: frente
+    definicion: Una línea de acción del proyecto; es una fila de la tabla.
+  - termino: etapa
+    definicion: Un paso por el que pasa todo frente; es una columna de la tabla.
+  - termino: estado
+    definicion: >
+      El valor de una celda, uno de cuatro: ✅ hecho, ⏳ en curso o esperando, ❌ falta o falla, — no aplica.
+  - termino: evidencia
+    definicion: Lo que respalda un ✅ (commit, versión, n/n pruebas o id de corrida).
+  - termino: bloqueo
+    definicion: Lo que espera un ⏳ y de quién.
+  - termino: validación real
+    definicion: Ver el resultado funcionando en un uso real; no es lo mismo que desplegado.
+
+preguntas:
+  - id: etapas
+    pregunta: ¿Qué etapas (columnas) tiene la tabla?
+    ayuda: Depende del tipo de trabajo. Las invariantes valen igual con cualquier conjunto de etapas.
+    por_defecto: software
+    opciones:
+      - valor: software
+        descripcion: Código · Pruebas · Producción · Validación real (separada de Producción).
+        invariantes: ["La columna Validación real nunca se marca ✅ solo porque Producción está ✅"]
+      - valor: modelos
+        descripcion: Datos · Entreno · Puerta · Producción (para modelos que pasan una puerta de calidad antes de producción).
+        invariantes: ["Producción no se marca ✅ sin la Puerta en ✅ con su evidencia"]
+      - valor: sin-codigo
+        descripcion: Definición · Ejecución · Verificación · Cierre (proyectos sin código).
+      - valor: propias
+        descripcion: Etapas definidas por el proyecto.
+        depende_de: ["La lista de etapas queda escrita en la ficha del módulo"]
+  - id: cuando
+    pregunta: ¿Cuándo se entrega la tabla?
+    por_defecto: cada-avance
+    opciones:
+      - valor: cada-avance
+        descripcion: En cada respuesta o reporte que trae avance.
+      - valor: siempre
+        descripcion: En toda respuesta o reporte, aunque no haya avance.
+      - valor: hitos
+        descripcion: Solo en los hitos.
+  - id: alcance
+    pregunta: ¿Qué frentes muestra la tabla?
+    por_defecto: abiertos
+    opciones:
+      - valor: abiertos
+        descripcion: Los frentes abiertos y los recién cerrados.
+      - valor: todos
+        descripcion: Todos los frentes.
+  - id: destino
+    pregunta: ¿Dónde queda la tabla?
+    por_defecto: respuesta
+    opciones:
+      - valor: respuesta
+        descripcion: Solo en la respuesta o el reporte.
+      - valor: archivo
+        descripcion: Además en el archivo .qdd/project/estado.yaml del proyecto.
+        decisiones: ["Una sesión cortada o un agente nuevo retoma desde los ⏳ del archivo, sin rehacer lo hecho"]
+        conformidad:
+          - id: EPF-A01
+            titulo: El archivo y la respuesta coinciden
+            cuando: se entrega una tabla y se actualiza .qdd/project/estado.yaml
+            entonces: ambos tienen los mismos frentes, etapas y estados
+      - valor: tablero
+        descripcion: Además en un tablero compartido.
+        depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
+  - id: formato
+    pregunta: ¿En qué formato se escribe la tabla?
+    por_defecto: markdown
+    opciones:
+      - valor: markdown
+        descripcion: Tabla markdown.
+      - valor: mensajeria
+        descripcion: Texto apto para aplicaciones de mensajería.
+
+ficha:
+  nombre: Estado por frente
+  objetivo_operativo:
+    problema: >
+      Los reportes de avance en prosa no se pueden auditar ni comparar entre proyectos: un «listo» sin evidencia, un
+      desplegado presentado como validado o un frente que desaparece en silencio se descubren tarde.
+    criterio_de_exito: >
+      Cada reporte de avance trae la tabla con un estado válido por celda; todo ✅ tiene evidencia, todo ⏳ tiene bloqueo
+      y ningún frente desaparece sin cierre explícito; un lector automático puede comprobarlo.
+  objetivo_tecnologico:
+    arquitectura: >
+      Tabla de frentes × etapas con cuatro estados cerrados. Las etapas las elige cada proyecto; las reglas son fijas,
+      por eso un lector automático (p. ej. una regla de qdd audit) puede revisar si un reporte las cumple.
+    decisiones:
+      - "Los estados son cerrados: ✅ ⏳ ❌ —"
+      - "La prosa acompaña a la tabla; no la reemplaza"
+    invariantes:
+      - "Cada celda tiene exactamente un estado"
+      - "Un ✅ lleva evidencia: commit, versión, n/n pruebas o id de corrida"
+      - "Un ⏳ dice qué espera y de quién"
+      - "Una falla conocida se reporta igual como ❌ y se nombra"
+      - "Desplegado no es validado: «✅ v1.2.0 · ⏳ falta ver un uso real»"
+      - "Lo que requiere aprobación lo dice en la celda y nunca avanza sin ella"
+      - "Un frente no desaparece en silencio"
+      - "No hay credenciales ni datos personales en la tabla"
+      - "El texto y la tabla no se contradicen"
+
+conformidad:
+  - id: EPF-C01
+    titulo: Un estado por celda
+    cuando: se revisa una tabla
+    entonces: cada celda tiene exactamente uno de ✅ ⏳ ❌ —
+  - id: EPF-C02
+    titulo: ✅ con evidencia
+    cuando: una celda está en ✅
+    entonces: nombra su evidencia (commit, versión, n/n pruebas o id de corrida)
+  - id: EPF-C03
+    titulo: ⏳ con bloqueo
+    cuando: una celda está en ⏳
+    entonces: dice qué espera y de quién
+  - id: EPF-C04
+    titulo: Desplegado no es validado
+    dado: un frente desplegado sin uso real observado
+    cuando: se reporta
+    entonces: la validación real queda ⏳ (o ❌), nunca ✅
+  - id: EPF-C05
+    titulo: Ningún frente desaparece
+    dado: un frente presente en el reporte anterior
+    cuando: no figura en el nuevo
+    entonces: el reporte dice que se cerró o se descartó, y por qué
+  - id: EPF-C06
+    titulo: Aprobación pendiente
+    cuando: una etapa requiere aprobación que aún no existe
+    entonces: la celda lo dice y la etapa no pasa a ✅
+  - id: EPF-C07
+    titulo: Sin secretos ni datos personales
+    cuando: se revisa una tabla
+    entonces: no contiene credenciales ni datos personales
+  - id: EPF-C08
+    titulo: Texto y tabla coinciden
+    cuando: el texto del reporte afirma un estado
+    entonces: la tabla muestra ese mismo estado
+
+referencias: []

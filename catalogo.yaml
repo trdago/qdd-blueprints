@@ -1,0 +1,5 @@
+# Índice de los blueprints de la organización (id → carpeta) y sus paquetes.
+blueprints:
+  estado-por-frente: estado-por-frente
+paquetes:
+  base: [estado-por-frente]
