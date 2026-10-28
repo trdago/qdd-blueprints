@@ -1,0 +1,131 @@
+# Blueprint QDD: consola de Claude Code.
+# Configuración común de la consola para toda la organización: cuándo se compacta el contexto, qué modelo y esfuerzo se usan
+# por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana).
+# Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
+#
+#   qdd blueprint add consola-claude-code --ref v1.0.0
+#   qdd blueprint apply consola-claude-code
+#   qdd modules approve consola-claude-code
+id: consola-claude-code
+nombre: Consola de Claude Code
+version: 1.0.0
+licencia: Propietaria — uso interno
+descripcion: >
+  Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
+  usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación).
+
+vocabulario:
+  - termino: contexto
+    definicion: Lo que la conversación ocupa de la ventana del modelo; la barra lo muestra en % usado.
+  - termino: autocompactación
+    definicion: >
+      Resumen automático de la conversación cuando el contexto llega a la ventana configurada
+      (modelSettings.<modelo>.autoCompactWindow, en tokens); la tarea en curso sigue después del resumen.
+  - termino: barra de estado
+    definicion: La línea inferior de la consola (statusLine); la arma un comando con el JSON que entrega la consola.
+  - termino: tramo de uso
+    definicion: >
+      Uso del plan en una ventana de tiempo: «5h» (corto plazo) y «semana» (7 días), en %, con la hora de renovación (↻).
+  - termino: esfuerzo
+    definicion: Nivel de razonamiento del modelo (effortLevel), global o por modelo.
+
+preguntas:
+  - id: ventana_compactacion
+    pregunta: ¿A cuántos tokens de contexto se autocompacta la conversación?
+    ayuda: >
+      Una ventana menor mantiene la sesión liviana y barata; una mayor conserva más detalle antes de resumir. Se fija por
+      modelo en modelSettings.<modelo>.autoCompactWindow.
+    por_defecto: "400k"
+    opciones:
+      - valor: "400k"
+        descripcion: Compacta al llegar a ~400 000 tokens (sesiones largas sin pagar el contexto completo).
+        decisiones: ["autoCompactWindow: 400000 en el modelo por defecto"]
+      - valor: "200k"
+        descripcion: Compacta al llegar a ~200 000 tokens (sesiones más livianas, se resume antes).
+        decisiones: ["autoCompactWindow: 200000 en el modelo por defecto"]
+      - valor: producto
+        descripcion: Sin ventana propia; se usa la del producto.
+  - id: modelo
+    pregunta: ¿Qué modelo usa la consola por defecto?
+    ayuda: El modelo por tarea de cada proyecto (subagentes más baratos para leer o buscar) va aparte, en sus reglas.
+    por_defecto: opus
+    opciones:
+      - valor: opus
+        descripcion: El más capaz como principal.
+      - valor: sonnet
+        descripcion: Más barato como principal; se escala a opus a pedido.
+  - id: esfuerzo
+    pregunta: ¿Qué esfuerzo usa el modelo por defecto?
+    por_defecto: high
+    opciones:
+      - valor: high
+        descripcion: Alto (effortLevel high en el modelo por defecto).
+      - valor: xhigh
+        descripcion: Muy alto, para problemas difíciles; más lento y caro.
+  - id: barra
+    pregunta: ¿Qué muestra la barra de estado?
+    por_defecto: completa
+    opciones:
+      - valor: completa
+        descripcion: "📁 proyecto · modelo · contexto N% · 5h N% (↻ HH:MM) · semana N% (↻ día HH:MM)"
+        depende_de: ["jq en la máquina", "La consola entrega rate_limits (planes con límite de uso)"]
+      - valor: minima
+        descripcion: "📁 proyecto · modelo · contexto N%"
+        depende_de: ["jq en la máquina"]
+
+ficha:
+  nombre: Consola de Claude Code
+  rutas: ["~/.claude/settings.json", "~/.claude/statusline.sh"]
+  objetivo_operativo:
+    problema: >
+      Cada persona configura la consola distinto: unas sesiones crecen hasta encarecerse o perder el hilo, y nadie ve a
+      tiempo cuánto contexto ni cuánto del plan le queda (5 h y semana) ni cuándo se renueva.
+    criterio_de_exito: >
+      Toda consola de la organización compacta en la ventana elegida y muestra en la barra proyecto, modelo, % de
+      contexto y, con la barra completa, el uso de 5 h y de la semana con su hora de renovación.
+  objetivo_tecnologico:
+    arquitectura: >
+      Configuración de usuario en ~/.claude/settings.json (model, effortLevel, modelSettings.<modelo>.autoCompactWindow,
+      statusLine de tipo command) y un script de barra (referencias/statusline.sh) que solo lee el JSON que la consola
+      le pasa por la entrada estándar y lo formatea con jq y date.
+    decisiones:
+      - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
+      - "La ventana de compactación se fija por modelo en modelSettings"
+      - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
+    invariantes:
+      - "La barra solo usa el JSON de la consola: sin red, sin archivos ni llamadas extra"
+      - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
+      - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
+      - "La barra no muestra credenciales, correos ni datos personales"
+      - "Los porcentajes se redondean a entero"
+      - "Un tramo de uso muestra su hora de renovación si la consola la entrega (epoch o ISO)"
+      - "Tras autocompactar, la tarea en curso sigue sin pedirla de nuevo"
+
+conformidad:
+  - id: CCC-C01
+    titulo: Barra completa
+    dado: el JSON trae proyecto, modelo, contexto 37,6 %, 5h 12,2 % y semana 40 % con sus renovaciones
+    cuando: corre el script de la barra
+    entonces: muestra «📁 <carpeta> · <modelo> · contexto 38% · 5h 12% (↻ HH:MM) · semana 40% (↻ <día> HH:MM)»
+  - id: CCC-C02
+    titulo: Campos ausentes se omiten
+    dado: el JSON trae solo proyecto y modelo
+    cuando: corre el script de la barra
+    entonces: muestra «📁 <carpeta> · <modelo>», sin contexto ni tramos y sin ceros inventados
+  - id: CCC-C03
+    titulo: Renovación en epoch o ISO
+    cuando: resets_at llega como segundos epoch o como fecha ISO 8601
+    entonces: la hora de renovación se muestra igual en ambos casos
+  - id: CCC-C04
+    titulo: Solo el nombre de la carpeta
+    cuando: el proyecto está en una ruta larga
+    entonces: la barra muestra solo el último segmento
+  - id: CCC-C05
+    titulo: Compactación en la ventana elegida
+    dado: autoCompactWindow fijado en el modelo por defecto
+    cuando: el contexto llega a esa ventana
+    entonces: la conversación se compacta y la tarea en curso continúa
+
+referencias:
+  - referencias/settings.json
+  - referencias/statusline.sh

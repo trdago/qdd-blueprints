@@ -1,5 +1,6 @@
 # Índice de los blueprints de la organización (id → carpeta) y sus paquetes.
 blueprints:
   estado-por-frente: estado-por-frente
+  consola-claude-code: consola-claude-code
 paquetes:
-  base: [estado-por-frente]
+  base: [estado-por-frente, consola-claude-code]
