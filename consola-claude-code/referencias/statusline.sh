@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Barra de estado de Claude Code: proyecto · modelo · % de contexto usado · uso del plan (5h y semana)
+# Barra de estado de Claude Code: proyecto · modelo · % de contexto usado · uso del plan (5h y semana) · estado por frente
 input=$(cat)
 proj=$(jq -r '.workspace.project_dir // .workspace.current_dir // .cwd // empty' <<<"$input")
 model=$(jq -r '.model.display_name // empty' <<<"$input")
@@ -22,4 +22,10 @@ read -r p5 r5 p7 r7 < <(jq -r '[.rate_limits.five_hour.used_percentage, .rate_li
 for v in p5 r5 p7 r7; do [ "${!v}" = "-" ] && printf -v "$v" ''; done
 line+="$(tramo "5h" "$p5" "$r5" "%H:%M")"
 line+="$(tramo "semana" "$p7" "$r7" "%a %H:%M")"
+# Segmento de estado (si qdd está instalado): resumen local del estado por frente del proyecto,
+# con tope de 100 ms. Sin archivo, sin qdd o con un qdd antiguo no imprime nada.
+if [ -n "$proj" ] && command -v qdd >/dev/null 2>&1; then
+	est=$(timeout 0.1 qdd estado statusline --dir "$proj" 2>/dev/null)
+	[ -n "$est" ] && line+=" · $est"
+fi
 printf '%s' "$line"
