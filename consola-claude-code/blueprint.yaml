@@ -9,12 +9,13 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 2.0.0
+version: 3.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
   usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
-  frente del proyecto (qdd estado statusline, blueprint estado-por-frente).
+  frente del proyecto (qdd estado statusline, blueprint estado-por-frente) y un panel que lo muestra y desde el que
+  se aprueban fichas o se revisa el estado con una confirmación.
 
 vocabulario:
   - termino: contexto
@@ -36,8 +37,13 @@ vocabulario:
       qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-frente con destino «archivo»).
   - termino: panel de estado
     definicion: >
-      Panel de Claude Code (mod qdd-estado@qdd) con la tabla de frentes × etapas, lo que espera cada ⏳ y las fallas;
-      va junto a la conversación en fullscreen y encima del prompt si la terminal es angosta.
+      Panel de Claude Code (mod qdd-estado@qdd) con el resumen en números grandes, la tabla de frentes × etapas, lo
+      que espera cada ⏳ y de quién, las fallas y las acciones; va junto a la conversación en fullscreen y encima del
+      prompt si la terminal es angosta.
+  - termino: acción del panel
+    definicion: >
+      Botón del panel que pide a qdd una operación que qdd ofrece en 'qdd consola panel --json' (aprobar una ficha en
+      borrador, revisar el estado, auditar) y que qdd ejecuta con 'qdd consola accion <id>'. El panel no arma comandos.
 
 preguntas:
   - id: ventana_compactacion
@@ -88,7 +94,8 @@ preguntas:
       Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de estado por
       frente (mod qdd-estado@qdd, junto a la conversación con /tui fullscreen) y deja la barra en Go
       ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N frentes · ⏳n ❌m» y funciona en
-      Windows sin bash ni jq. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
+      Windows sin bash ni jq. Desde el panel se aprueban las fichas en borrador y se revisa el estado, con un segundo
+      paso para lo que escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
     por_defecto: "no"
     opciones:
       - valor: "no"
@@ -96,9 +103,10 @@ preguntas:
         decisiones: ["Barra con referencias/statusline.sh; sin panel de estado"]
       - valor: si
         descripcion: Panel de estado y barra de QDD, con un solo comando por persona.
-        depende_de: ["qdd ≥ 2.2.0", "Claude Code ≥ 2.1.287 (mods)"]
+        depende_de: ["qdd ≥ 2.3.0", "Claude Code ≥ 2.1.287 (mods)"]
         decisiones:
           - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-estado@qdd y barra 'qdd consola statusline')"
+          - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
 
 ficha:
@@ -122,10 +130,15 @@ ficha:
       - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
+      - "El panel ordena la lectura en cuatro niveles: resumen en números grandes de 3 filas (frentes, ⏳, ❌), títulos en negrita, texto y detalle atenuado; el tamaño de letra no se usa porque la terminal tiene uno solo"
+      - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada frente toma el color de su peor etapa"
     invariantes:
       - "La barra no usa la red y solo lee el JSON de la consola; la única lectura extra permitida es el segmento de estado, que lee solo el archivo local del proyecto, tiene un tope de 100 ms y no muestra nada si falla"
       - "Una barra propia (statusLine) nunca se reemplaza sin que la persona lo pida"
-      - "El panel solo dibuja lo que entrega qdd estado ver --json; no decide nada por su cuenta"
+      - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
+      - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
+      - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
+      - "El panel no ejecuta comandos ni texto libre: solo ids de acción, y la aprobación de una ficha la sigue haciendo una persona"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
       - "La barra no muestra credenciales, correos ni datos personales"
@@ -177,6 +190,25 @@ conformidad:
     dado: la consola se activó y luego se actualizó qdd
     cuando: corre 'qdd doctor'
     entonces: reporta el panel con la versión vieja y 'qdd doctor --fix' lo deja en la versión nueva
+  - id: CCC-C10
+    titulo: Aprobar una ficha desde el panel
+    dado: el proyecto tiene la ficha «pagos» en borrador
+    cuando: la persona pulsa su botón y luego «s  Sí»
+    entonces: qdd la aprueba igual que 'qdd modules approve pagos' y el panel muestra el resultado; con «n» no cambia nada
+  - id: CCC-C11
+    titulo: Una acción que qdd no ofrece se rechaza
+    cuando: se pide 'qdd consola accion' con un id que 'qdd consola panel --json' no ofrece, o una acción que escribe sin --confirmado
+    entonces: qdd sale con error y no ejecuta nada
+  - id: CCC-C12
+    titulo: Revisar el estado sin confirmación
+    dado: el proyecto tiene .qdd/project/estado.yaml
+    cuando: la persona pulsa «c  Revisar estado»
+    entonces: corre 'qdd estado check' (solo lectura) y el panel muestra el resultado en verde o rojo
+  - id: CCC-C13
+    titulo: Jerarquía visual
+    dado: 8 frentes abiertos, 6 ⏳ y 2 ❌
+    cuando: se dibuja el panel
+    entonces: la cabecera muestra 8, 6 y 2 en números grandes y cada frente lleva el color de su peor etapa
 
 referencias:
   - referencias/settings.json
