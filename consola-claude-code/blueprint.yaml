@@ -1,6 +1,7 @@
 # Blueprint QDD: consola de Claude Code.
 # Configuración común de la consola para toda la organización: cuándo se compacta el contexto, qué modelo y esfuerzo se usan
-# por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana).
+# por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana · estado por
+# frente, opcional).
 # Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
 #
 #   qdd blueprint add consola-claude-code --ref v1.0.0
@@ -8,11 +9,12 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 1.0.0
+version: 2.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
-  usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación).
+  usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
+  frente del proyecto (qdd estado statusline, blueprint estado-por-frente).
 
 vocabulario:
   - termino: contexto
@@ -28,6 +30,14 @@ vocabulario:
       Uso del plan en una ventana de tiempo: «5h» (corto plazo) y «semana» (7 días), en %, con la hora de renovación (↻).
   - termino: esfuerzo
     definicion: Nivel de razonamiento del modelo (effortLevel), global o por modelo.
+  - termino: segmento de estado
+    definicion: >
+      Resumen de una línea del estado por frente del proyecto («◧ 5 frentes · ⏳4 ❌1»), que entrega
+      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-frente con destino «archivo»).
+  - termino: panel de estado
+    definicion: >
+      Panel de Claude Code (mod qdd-estado@qdd) con la tabla de frentes × etapas, lo que espera cada ⏳ y las fallas;
+      va junto a la conversación en fullscreen y encima del prompt si la terminal es angosta.
 
 preguntas:
   - id: ventana_compactacion
@@ -72,6 +82,24 @@ preguntas:
       - valor: minima
         descripcion: "📁 proyecto · modelo · contexto N%"
         depende_de: ["jq en la máquina"]
+  - id: consola_qdd
+    pregunta: ¿La consola usa el panel y la barra de QDD?
+    ayuda: >
+      Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de estado por
+      frente (mod qdd-estado@qdd, junto a la conversación con /tui fullscreen) y deja la barra en Go
+      ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N frentes · ⏳n ❌m» y funciona en
+      Windows sin bash ni jq. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Barra con referencias/statusline.sh y sin panel.
+        decisiones: ["Barra con referencias/statusline.sh; sin panel de estado"]
+      - valor: si
+        descripcion: Panel de estado y barra de QDD, con un solo comando por persona.
+        depende_de: ["qdd ≥ 2.2.0", "Claude Code ≥ 2.1.287 (mods)"]
+        decisiones:
+          - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-estado@qdd y barra 'qdd consola statusline')"
+          - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
 
 ficha:
   nombre: Consola de Claude Code
@@ -87,13 +115,17 @@ ficha:
     arquitectura: >
       Configuración de usuario en ~/.claude/settings.json (model, effortLevel, modelSettings.<modelo>.autoCompactWindow,
       statusLine de tipo command) y un script de barra (referencias/statusline.sh) que solo lee el JSON que la consola
-      le pasa por la entrada estándar y lo formatea con jq y date.
+      le pasa por la entrada estándar y lo formatea con jq y date; si qdd está instalado, agrega al final lo que imprime
+      qdd estado statusline. Con consola_qdd=si, 'qdd consola activar' cambia la barra por 'qdd consola statusline'
+      (la misma línea en Go) e instala el panel de estado desde un marketplace local, sin escribir en el proyecto.
     decisiones:
       - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
     invariantes:
-      - "La barra solo usa el JSON de la consola: sin red, sin archivos ni llamadas extra"
+      - "La barra no usa la red y solo lee el JSON de la consola; la única lectura extra permitida es el segmento de estado, que lee solo el archivo local del proyecto, tiene un tope de 100 ms y no muestra nada si falla"
+      - "Una barra propia (statusLine) nunca se reemplaza sin que la persona lo pida"
+      - "El panel solo dibuja lo que entrega qdd estado ver --json; no decide nada por su cuenta"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
       - "La barra no muestra credenciales, correos ni datos personales"
@@ -125,6 +157,26 @@ conformidad:
     dado: autoCompactWindow fijado en el modelo por defecto
     cuando: el contexto llega a esa ventana
     entonces: la conversación se compacta y la tarea en curso continúa
+  - id: CCC-C06
+    titulo: Segmento de estado
+    dado: el proyecto tiene .qdd/project/estado.yaml con 5 frentes abiertos, 4 ⏳ y 1 ❌
+    cuando: corre el script de la barra
+    entonces: la barra termina en «· ◧ 5 frentes · ⏳4 ❌1»
+  - id: CCC-C07
+    titulo: El segmento de estado nunca ensucia la barra
+    cuando: el proyecto no tiene estado.yaml, qdd no está instalado, es una versión sin qdd estado o tarda más de 100 ms
+    entonces: la barra se muestra igual que sin el segmento, sin errores ni texto de ayuda
+
+  - id: CCC-C08
+    titulo: Un solo interruptor, repetible
+    dado: consola_qdd=si
+    cuando: la persona ejecuta 'qdd consola activar' una o más veces
+    entonces: el panel qdd-estado@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
+  - id: CCC-C09
+    titulo: Doctor mantiene la consola al día
+    dado: la consola se activó y luego se actualizó qdd
+    cuando: corre 'qdd doctor'
+    entonces: reporta el panel con la versión vieja y 'qdd doctor --fix' lo deja en la versión nueva
 
 referencias:
   - referencias/settings.json
