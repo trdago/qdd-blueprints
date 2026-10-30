@@ -6,8 +6,9 @@ conformidad) de módulos que se reutilizan en todos los proyectos. Cualquiera pu
 
 | Blueprint | Qué define |
 |---|---|
-| [`estado-por-frente`](estado-por-frente/blueprint.yaml) | Reporte de avance en una tabla de frentes × etapas con reglas de evidencia auditables. |
-| [`consola-claude-code`](consola-claude-code/blueprint.yaml) | Autocompactación, modelo y esfuerzo por defecto, barra de estado (proyecto · modelo · contexto · 5h · semana) y, con `consola_qdd`, panel de estado con acciones. Referencia en `referencias/`. |
+| [`estado-por-tareas`](estado-por-tareas/blueprint.yaml) | Reporte de avance en una tabla de tareas × etapas con reglas de evidencia auditables y, si lo quieres, la tarea en curso: «● running» con un latido sutil en el panel, que se apaga solo si nada late. Reemplaza a `estado-por-frente`. |
+| [`consola-claude-code`](consola-claude-code/blueprint.yaml) | Autocompactación, modelo y esfuerzo por defecto, barra de estado (proyecto · modelo · contexto · 5h · semana) y, con `consola_qdd`, panel de estado con acciones y con los comandos que la IA deja para ti (un clic y «s  Sí»). Referencia en `referencias/`. |
+| [`estado-por-frente`](estado-por-frente/blueprint.yaml) | *Reemplazado por `estado-por-tareas`.* Se mantiene para los proyectos que aún no migran: con QDD ≥ 2.8.0, `qdd blueprint add estado-por-tareas` los migra conservando su módulo y sus respuestas. |
 
 ## Usarlos
 
@@ -15,8 +16,8 @@ Con [QDD](https://github.com/trdago/qdd-framework) instalado (`npm install -g qd
 
 ```sh
 qdd blueprint add https://github.com/trdago/qdd-blueprints.git --paquete base
-qdd blueprint apply estado-por-frente
-qdd modules approve estado-por-frente
+qdd blueprint apply estado-por-tareas
+qdd modules approve estado-por-tareas
 ```
 
 La URL HTTPS funciona sin cuenta de GitHub. Si tienes una llave SSH en GitHub también sirve

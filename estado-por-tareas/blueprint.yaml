@@ -1,0 +1,267 @@
+# Blueprint QDD: estado por tareas.
+# Cómo reporta el avance cualquier proyecto (con agentes o con personas): una tabla de tareas × etapas con reglas de
+# honestidad fijas y, si el proyecto quiere, qué tarea se está trabajando ahora y si sigue viva («● running»).
+# Reemplaza a estado-por-frente: es el mismo estándar con la tarea en curso sumada y una sola palabra, «tarea».
+# Un proyecto que usa estado-por-frente lo migra con 'qdd blueprint add estado-por-tareas' (qdd ≥ 2.8.0, RFC 0009):
+# su módulo conserva el id y las respuestas.
+#
+#   qdd blueprint add estado-por-tareas
+#   qdd blueprint apply estado-por-tareas
+#   qdd modules approve estado-por-tareas
+id: estado-por-tareas
+nombre: Estado por tareas
+version: 1.0.0
+licencia: Propietaria — uso interno
+reemplaza: [estado-por-frente]
+descripcion: >
+  Reporte de avance en una tabla de tareas (filas) por etapas (columnas), con un estado por celda y reglas de evidencia
+  que permiten auditarlo, retomarlo sin perder trabajo y agregarlo con el de otros proyectos. Con la tabla en archivo,
+  además la tarea en curso: el agente la declara, lo que corre para ella la hace latir y el panel la muestra
+  «● running»; se apaga sola si nada late. La tarea en curso la implementa qdd ≥ 2.7.0.
+
+vocabulario:
+  - termino: tarea
+    definicion: Una línea de trabajo del proyecto; es una fila de la tabla (antes «frente»).
+  - termino: etapa
+    definicion: Un paso por el que pasa toda tarea; es una columna de la tabla.
+  - termino: estado
+    definicion: >
+      El valor de una celda, uno de cuatro: ✅ hecho, ⏳ en curso o esperando, ❌ falta o falla, — no aplica.
+  - termino: evidencia
+    definicion: Lo que respalda un ✅ (commit, versión, n/n pruebas o id de corrida).
+  - termino: bloqueo
+    definicion: Lo que espera un ⏳ y de quién.
+  - termino: validación real
+    definicion: Ver el resultado funcionando en un uso real; no es lo mismo que desplegado.
+  - termino: en curso
+    definicion: Una tarea que el agente declaró y que latió hace menos de la vida; el panel la muestra «● running».
+  - termino: pulso
+    definicion: >
+      Una señal de vida de la tarea en curso: una herramienta del agente, un subagente o un comando externo (script,
+      test, deploy o worker) que trabaja en ella.
+  - termino: fuente
+    definicion: "De dónde viene un pulso, una de tres: agente, subagente o comando."
+  - termino: vida
+    definicion: Cuánto sigue en curso una tarea sin pulsos antes de apagarse sola (120 s).
+  - termino: actividad
+    definicion: >
+      El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
+      de QDD), no es estado y no se commitea.
+
+preguntas:
+  - id: etapas
+    pregunta: ¿Qué etapas (columnas) tiene la tabla?
+    ayuda: Depende del tipo de trabajo. Las invariantes valen igual con cualquier conjunto de etapas.
+    por_defecto: software
+    opciones:
+      - valor: software
+        descripcion: Código · Pruebas · Producción · Validación real (separada de Producción).
+        invariantes: ["La columna Validación real nunca se marca ✅ solo porque Producción está ✅"]
+      - valor: modelos
+        descripcion: Datos · Entreno · Puerta · Producción (para modelos que pasan una puerta de calidad antes de producción).
+        invariantes: ["Producción no se marca ✅ sin la Puerta en ✅ con su evidencia"]
+      - valor: sin-codigo
+        descripcion: Definición · Ejecución · Verificación · Cierre (proyectos sin código).
+      - valor: propias
+        descripcion: Etapas definidas por el proyecto.
+        depende_de: ["La lista de etapas queda escrita en la ficha del módulo"]
+  - id: cuando
+    pregunta: ¿Cuándo se entrega la tabla?
+    por_defecto: cada-avance
+    opciones:
+      - valor: cada-avance
+        descripcion: En cada respuesta o reporte que trae avance.
+      - valor: siempre
+        descripcion: En toda respuesta o reporte, aunque no haya avance.
+      - valor: hitos
+        descripcion: Solo en los hitos.
+  - id: alcance
+    pregunta: ¿Qué tareas muestra la tabla?
+    por_defecto: abiertos
+    opciones:
+      - valor: abiertos
+        descripcion: Las tareas abiertas y las recién cerradas.
+      - valor: todos
+        descripcion: Todas las tareas.
+  - id: destino
+    pregunta: ¿Dónde queda la tabla?
+    por_defecto: respuesta
+    opciones:
+      - valor: respuesta
+        descripcion: Solo en la respuesta o el reporte.
+      - valor: archivo
+        descripcion: Además en el archivo .qdd/project/estado.yaml del proyecto.
+        decisiones: ["Una sesión cortada o un agente nuevo retoma desde los ⏳ del archivo, sin rehacer lo hecho"]
+        conformidad:
+          - id: EPF-A01
+            titulo: El archivo y la respuesta coinciden
+            cuando: se entrega una tabla y se actualiza .qdd/project/estado.yaml
+            entonces: ambos tienen las mismas tareas, etapas y estados
+      - valor: tablero
+        descripcion: Además en un tablero compartido.
+        depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
+  - id: formato
+    pregunta: ¿En qué formato se escribe la tabla?
+    por_defecto: markdown
+    opciones:
+      - valor: markdown
+        descripcion: Tabla markdown.
+      - valor: mensajeria
+        descripcion: Texto apto para aplicaciones de mensajería.
+  - id: en_curso
+    pregunta: ¿Se muestra qué tarea se está trabajando ahora y si sigue viva?
+    ayuda: >
+      Con la tabla en archivo, el agente puede declarar la tarea en curso y el panel la muestra «● running», latiendo
+      con cada cosa que corre para ella. La pregunta es qué la hace latir.
+    si: {destino: archivo}
+    por_defecto: todos
+    opciones:
+      - valor: todos
+        descripcion: >
+          Sí. Laten las herramientas del agente, sus subagentes y los comandos externos que llaman a
+          'qdd estado pulso <tarea> --fuente comando' (scripts, tests, deploys, workers).
+        decisiones:
+          - "Los scripts largos del proyecto (tests, deploys, workers) llaman a 'qdd estado pulso <tarea> --fuente comando'"
+        invariantes: &en_curso_invariantes
+          - "La actividad no es estado: no cambia la tabla y no se commitea"
+          - "Solo una tarea abierta puede estar en curso; cerrarla o descartarla la apaga"
+          - "Una tarea sin pulsos durante la vida deja de estar en curso: nunca queda encendida para siempre"
+          - "Un pulso nunca demora ni bloquea la herramienta, el subagente o el comando que lo produjo"
+          - "Una tarea en curso siempre se ve en el panel, aunque no esté entre las más nuevas"
+          - "El latido es sutil: un destello por pulso, sin abrir ni enfocar el panel ni sonar"
+          - "La actividad no guarda credenciales ni datos personales: «quién» es una herramienta, no una persona"
+        conformidad: &en_curso_conformidad
+          - id: EPT-C01
+            titulo: El agente declara la tarea en curso
+            cuando: el agente activa una tarea abierta
+            entonces: queda en curso en la actividad y la tabla de estado no cambia
+          - id: EPT-C02
+            titulo: Solo tareas abiertas que existen
+            cuando: se activa o se pulsa una tarea que no existe, o con una fuente que no es agente, subagente ni comando
+            entonces: es un error y no se escribe nada
+          - id: EPT-C03
+            titulo: Un pulso sin tarea late la última activada
+            dado: dos tareas activadas
+            cuando: llega un pulso sin tarea
+            entonces: late la última activada, con su hora y su fuente; sin tarea en curso no hace nada y no falla
+          - id: EPT-C04
+            titulo: Un comando externo late su tarea
+            cuando: un comando deja un pulso con la tarea
+            entonces: la tarea queda en curso con fuente comando
+          - id: EPT-C05
+            titulo: Se apaga sola
+            dado: una tarea en curso
+            cuando: pasa la vida sin pulsos
+            entonces: deja de estar en curso y un pulso sin tarea no la revive
+          - id: EPT-C06
+            titulo: Terminar, cerrar o descartar la apagan
+            cuando: se termina, se cierra o se descarta una tarea en curso
+            entonces: deja de estar en curso; terminar una que no lo estaba no es un error
+          - id: EPT-C07
+            titulo: La tarea en curso siempre se ve
+            dado: una tarea en curso que no está entre las más nuevas
+            cuando: se arma el panel
+            entonces: se ve con su actividad, las demás no la llevan y «actual» es la última activada
+          - id: EPT-C08
+            titulo: «● running» con latido
+            dado: una tarea en curso en el panel
+            cuando: pasa el tiempo
+            entonces: dice «running» atenuado y el ● alterna tenue y brillante cada 1 s
+          - id: EPT-C09
+            titulo: Destello con cada pulso
+            cuando: el pulso de la tarea cambia entre dos lecturas
+            entonces: el ● destella en el color de acento por un instante y vuelve a su latido
+          - id: EPT-C10
+            titulo: Las herramientas del agente laten sin demorarse
+            dado: una tarea en curso
+            cuando: el agente ejecuta herramientas o lanza un subagente
+            entonces: la herramienta sigue sin esperar, el panel destella y la CLI recibe como mucho un pulso cada 5 s
+          - id: EPT-C11
+            titulo: Lo mismo en un panel de solo lectura
+            cuando: otro panel (p. ej. OpenCode) lee el mismo JSON
+            entonces: muestra «● running», el latido y el destello igual
+          - id: EPT-C12
+            titulo: El agente de otro panel también late
+            cuando: el agente de ese panel ejecuta una herramienta (subagente si es la de tareas)
+            entonces: deja su pulso con el mismo tope de 5 s
+      - valor: solo-agente
+        descripcion: Sí, pero solo laten las herramientas del agente y sus subagentes; los comandos externos no.
+        invariantes: *en_curso_invariantes
+        conformidad: *en_curso_conformidad
+      - valor: "no"
+        descripcion: No. Solo la tabla; el panel no muestra actividad.
+
+ficha:
+  nombre: Estado por tareas
+  rutas: [".qdd/project/estado.yaml"]
+  objetivo_operativo:
+    problema: >
+      Los reportes de avance en prosa no se pueden auditar ni comparar entre proyectos: un «listo» sin evidencia, un
+      desplegado presentado como validado o una tarea que desaparece en silencio se descubren tarde. Y aunque la tabla
+      diga cómo va cada tarea, no dice cuál se está trabajando ahora ni si el agente sigue vivo.
+    criterio_de_exito: >
+      Cada reporte de avance trae la tabla con un estado válido por celda; todo ✅ tiene evidencia, todo ⏳ tiene bloqueo
+      y ninguna tarea desaparece sin cierre explícito; un lector automático puede comprobarlo. Con la tarea en curso,
+      el panel muestra la que se trabaja «● running» y la apaga sola si nada late.
+  objetivo_tecnologico:
+    arquitectura: >
+      Tabla de tareas × etapas con cuatro estados cerrados. Las etapas las elige cada proyecto; las reglas son fijas,
+      por eso un lector automático (p. ej. 'qdd estado check' o una regla de qdd audit) puede revisar si un reporte las
+      cumple. La tarea en curso es un registro de actividad de la máquina, fuera del proyecto y de git, escrito por la
+      CLI ('qdd estado activa' y 'qdd estado pulso', o la tool MCP qdd_estado); el JSON del panel lo entrega resuelto y
+      los paneles solo lo dibujan.
+    decisiones:
+      - "Los estados son cerrados: ✅ ⏳ ❌ —"
+      - "La prosa acompaña a la tabla; no la reemplaza"
+      - "La tarea en curso la declara el agente al empezar a trabajarla; puede haber varias (sesiones distintas)"
+      - "Un pulso sin tarea late la última activada; un pulso con tarea la enciende si estaba apagada"
+      - "La vida es de 120 s sin pulsos; el panel envía como mucho un pulso cada 5 s"
+      - "Se ve como «● running»: el ● alterna tenue y brillante cada 1 s y destella en acento con cada pulso"
+    invariantes:
+      - "Cada celda tiene exactamente un estado"
+      - "Un ✅ lleva evidencia: commit, versión, n/n pruebas o id de corrida"
+      - "Un ⏳ dice qué espera y de quién"
+      - "Una falla conocida se reporta igual como ❌ y se nombra"
+      - "Desplegado no es validado: «✅ v1.2.0 · ⏳ falta ver un uso real»"
+      - "Lo que requiere aprobación lo dice en la celda y nunca avanza sin ella"
+      - "Una tarea no desaparece en silencio"
+      - "No hay credenciales ni datos personales en la tabla"
+      - "El texto y la tabla no se contradicen"
+
+conformidad:
+  - id: EPF-C01
+    titulo: Un estado por celda
+    cuando: se revisa una tabla
+    entonces: cada celda tiene exactamente uno de ✅ ⏳ ❌ —
+  - id: EPF-C02
+    titulo: ✅ con evidencia
+    cuando: una celda está en ✅
+    entonces: nombra su evidencia (commit, versión, n/n pruebas o id de corrida)
+  - id: EPF-C03
+    titulo: ⏳ con bloqueo
+    cuando: una celda está en ⏳
+    entonces: dice qué espera y de quién
+  - id: EPF-C04
+    titulo: Desplegado no es validado
+    dado: una tarea desplegada sin uso real observado
+    cuando: se reporta
+    entonces: la validación real queda ⏳ (o ❌), nunca ✅
+  - id: EPF-C05
+    titulo: Ninguna tarea desaparece
+    dado: una tarea presente en el reporte anterior
+    cuando: no figura en el nuevo
+    entonces: el reporte dice que se cerró o se descartó, y por qué
+  - id: EPF-C06
+    titulo: Aprobación pendiente
+    cuando: una etapa requiere aprobación que aún no existe
+    entonces: la celda lo dice y la etapa no pasa a ✅
+  - id: EPF-C07
+    titulo: Sin secretos ni datos personales
+    cuando: se revisa una tabla
+    entonces: no contiene credenciales ni datos personales
+  - id: EPF-C08
+    titulo: Texto y tabla coinciden
+    cuando: el texto del reporte afirma un estado
+    entonces: la tabla muestra ese mismo estado
+
+referencias: []
