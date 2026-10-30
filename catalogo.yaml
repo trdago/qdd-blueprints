@@ -4,4 +4,4 @@ blueprints:
   consola-claude-code: consola-claude-code
   estado-por-tareas: estado-por-tareas
 paquetes:
-  base: [estado-por-frente, consola-claude-code, estado-por-tareas]
+  base: [estado-por-tareas, consola-claude-code]
