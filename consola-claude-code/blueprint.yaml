@@ -1,7 +1,7 @@
 # Blueprint QDD: consola de Claude Code.
 # Configuración común de la consola para toda la organización: cuándo se compacta el contexto, qué modelo y esfuerzo se usan
 # por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana · estado por
-# frente, opcional).
+# tareas, opcional).
 # Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
 #
 #   qdd blueprint add consola-claude-code --ref v1.0.0
@@ -14,7 +14,7 @@ licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
   usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
-  frente del proyecto (qdd estado statusline, blueprint estado-por-frente) y un panel que lo muestra y desde el que
+  tareas del proyecto (qdd estado statusline, blueprint estado-por-tareas) y un panel que lo muestra y desde el que
   se aprueban fichas o se revisa el estado con una confirmación. Opcional: una segunda línea con el uso del equipo
   (D disco · G GPU · R RAM · C CPU).
 
@@ -34,8 +34,8 @@ vocabulario:
     definicion: Nivel de razonamiento del modelo (effortLevel), global o por modelo.
   - termino: segmento de estado
     definicion: >
-      Resumen de una línea del estado por frente del proyecto («◧ 5 frentes · ⏳4 ❌1»), que entrega
-      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-frente con destino «archivo»).
+      Resumen de una línea del estado por tareas del proyecto («◧ 5 tareas · ⏳4 ❌1»), que entrega
+      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-tareas con destino «archivo»).
   - termino: segmento de recursos
     definicion: >
       Segunda línea de la barra con el uso del equipo en etiquetas de una letra para ahorrar espacio:
@@ -43,7 +43,7 @@ vocabulario:
       R la RAM usada y C la CPU usada.
   - termino: panel de estado
     definicion: >
-      Panel de Claude Code (mod qdd-estado@qdd) con el resumen en números grandes, la tabla de frentes × etapas, lo
+      Panel de Claude Code (mod qdd-tareas@qdd) con el resumen en números grandes, la tabla de tareas × etapas, lo
       que espera cada ⏳ y de quién, las fallas y las acciones; va junto a la conversación en fullscreen y encima del
       prompt si la terminal es angosta.
   - termino: acción del panel
@@ -201,9 +201,9 @@ conformidad:
     entonces: la conversación se compacta y la tarea en curso continúa
   - id: CCC-C06
     titulo: Segmento de estado
-    dado: el proyecto tiene .qdd/project/estado.yaml con 5 frentes abiertos, 4 ⏳ y 1 ❌
+    dado: el proyecto tiene .qdd/project/estado.yaml con 5 tareas abiertas, 4 ⏳ y 1 ❌
     cuando: corre el script de la barra
-    entonces: la barra termina en «· ◧ 5 frentes · ⏳4 ❌1»
+    entonces: la barra termina en «· ◧ 5 tareas · ⏳4 ❌1»
   - id: CCC-C07
     titulo: El segmento de estado nunca ensucia la barra
     cuando: el proyecto no tiene estado.yaml, qdd no está instalado, es una versión sin qdd estado o tarda más de 100 ms
@@ -213,7 +213,7 @@ conformidad:
     titulo: Un solo interruptor, repetible
     dado: consola_qdd=si
     cuando: la persona ejecuta 'qdd consola activar' una o más veces
-    entonces: el panel qdd-estado@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
+    entonces: el panel qdd-tareas@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
   - id: CCC-C09
     titulo: Doctor mantiene la consola al día
     dado: la consola se activó y luego se actualizó qdd
@@ -257,7 +257,7 @@ conformidad:
     entonces: el comando sale de la cola sin ejecutarse
   - id: CCC-C20
     titulo: El panel avisa
-    dado: el panel está cerrado o no hay frentes
+    dado: el panel está cerrado o no hay tareas
     cuando: llega un comando pedido nuevo
     entonces: el panel se abre solo, una vez por pedido, sin quitarle el foco a la conversación
 
