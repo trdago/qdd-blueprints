@@ -1,7 +1,7 @@
 # Blueprint QDD: consola de Claude Code.
 # Configuración común de la consola para toda la organización: cuándo se compacta el contexto, qué modelo y esfuerzo se usan
 # por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana · estado por
-# frente, opcional).
+# tareas, opcional).
 # Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
 #
 #   qdd blueprint add consola-claude-code --ref v1.0.0
@@ -9,12 +9,12 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 5.0.0
+version: 6.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
   usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
-  frente del proyecto (qdd estado statusline, blueprint estado-por-frente) y un panel que lo muestra y desde el que
+  tareas del proyecto (qdd estado statusline, blueprint estado-por-tareas) y un panel que lo muestra y desde el que
   se aprueban fichas o se revisa el estado con una confirmación. Opcional: una segunda línea con el uso del equipo
   (D disco · G GPU · R RAM · C CPU).
 
@@ -34,8 +34,8 @@ vocabulario:
     definicion: Nivel de razonamiento del modelo (effortLevel), global o por modelo.
   - termino: segmento de estado
     definicion: >
-      Resumen de una línea del estado por frente del proyecto («◧ 5 frentes · ⏳4 ❌1»), que entrega
-      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-frente con destino «archivo»).
+      Resumen de una línea del estado por tareas del proyecto («◧ 5 tareas · ⏳4 ❌1»), que entrega
+      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-tareas con destino «archivo»).
   - termino: segmento de recursos
     definicion: >
       Segunda línea de la barra con el uso del equipo en etiquetas de una letra para ahorrar espacio:
@@ -43,7 +43,7 @@ vocabulario:
       R la RAM usada y C la CPU usada.
   - termino: panel de estado
     definicion: >
-      Panel de Claude Code (mod qdd-estado@qdd) con el resumen en números grandes, la tabla de frentes × etapas, lo
+      Panel de Claude Code (mod qdd-tareas@qdd) con el resumen en números grandes, la tabla de tareas × etapas, lo
       que espera cada ⏳ y de quién, las fallas y las acciones; va junto a la conversación en fullscreen y encima del
       prompt si la terminal es angosta.
   - termino: acción del panel
@@ -97,10 +97,10 @@ preguntas:
   - id: consola_qdd
     pregunta: ¿La consola usa el panel y la barra de QDD?
     ayuda: >
-      Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de estado por
-      frente (mod qdd-estado@qdd, junto a la conversación con /tui fullscreen) y deja la barra en Go
-      ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N frentes · ⏳n ❌m» y funciona en
-      Windows sin bash ni jq. Desde el panel se aprueban las fichas en borrador, se revisa el estado y se ejecutan con un
+      Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de tareas
+      (mod qdd-tareas@qdd, junto a la conversación con /tui fullscreen; /tareas lo abre) y deja la barra en Go
+      ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N tareas · ⏳n ❌m» y funciona en
+      Windows sin bash ni jq. Si OpenCode está en la máquina, deja también el panel en su barra lateral, solo para mirar. Desde el panel se aprueban las fichas en borrador, se revisa el estado y se ejecutan con un
       clic los comandos que la IA deja para la persona (p. ej. publicar una versión), con un segundo paso para lo que
       escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
     por_defecto: "no"
@@ -112,7 +112,10 @@ preguntas:
         descripcion: Panel de estado y barra de QDD, con un solo comando por persona.
         depende_de: ["qdd ≥ 2.3.0", "Claude Code ≥ 2.1.287 (mods)"]
         decisiones:
-          - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-estado@qdd y barra 'qdd consola statusline')"
+          - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-tareas@qdd, que reemplaza a qdd-estado@qdd, y barra 'qdd consola statusline')"
+          - "Panel liviano (qdd ≥ 2.7.0): solo las 4 tareas pendientes más nuevas (una tarea terminada sale sola) y «+N más antiguas»; cada una con su ✕ para descartarla con «s  Sí»; arriba la carpeta del proyecto con «o  Abrir carpeta» (gestor de archivos del sistema)"
+          - "Con el blueprint estado-por-tareas, la tarea en curso dice «● running» y late con cada pulso"
+          - "Si OpenCode está en la máquina, 'qdd consola activar' deja el panel en su barra lateral, de solo lectura, con la misma sincronización y la versión de qdd"
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
@@ -154,8 +157,8 @@ ficha:
       - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
-      - "El panel ordena la lectura en cuatro niveles: resumen en números grandes de 3 filas (frentes, ⏳, ❌), títulos en negrita, texto y detalle atenuado; el tamaño de letra no se usa porque la terminal tiene uno solo"
-      - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada frente toma el color de su peor etapa"
+      - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
+      - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
     invariantes:
       - "La barra no usa la red y solo lee el JSON de la consola; las únicas lecturas extra permitidas son el segmento de estado (solo el archivo local del proyecto, tope de 100 ms) y el segmento de recursos (solo contadores locales del sistema; la GPU se consulta como mucho cada 5 s con tope de 300 ms); lo que falla no se muestra"
       - "Un recurso que existe pero no se puede medir sin permisos (p. ej. el % de una GPU integrada) se muestra con «—»; uno que el sistema no expone se omite; nunca se muestra un valor inventado"
@@ -198,9 +201,9 @@ conformidad:
     entonces: la conversación se compacta y la tarea en curso continúa
   - id: CCC-C06
     titulo: Segmento de estado
-    dado: el proyecto tiene .qdd/project/estado.yaml con 5 frentes abiertos, 4 ⏳ y 1 ❌
+    dado: el proyecto tiene .qdd/project/estado.yaml con 5 tareas abiertas, 4 ⏳ y 1 ❌
     cuando: corre el script de la barra
-    entonces: la barra termina en «· ◧ 5 frentes · ⏳4 ❌1»
+    entonces: la barra termina en «· ◧ 5 tareas · ⏳4 ❌1»
   - id: CCC-C07
     titulo: El segmento de estado nunca ensucia la barra
     cuando: el proyecto no tiene estado.yaml, qdd no está instalado, es una versión sin qdd estado o tarda más de 100 ms
@@ -210,7 +213,7 @@ conformidad:
     titulo: Un solo interruptor, repetible
     dado: consola_qdd=si
     cuando: la persona ejecuta 'qdd consola activar' una o más veces
-    entonces: el panel qdd-estado@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
+    entonces: el panel qdd-tareas@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
   - id: CCC-C09
     titulo: Doctor mantiene la consola al día
     dado: la consola se activó y luego se actualizó qdd
@@ -231,10 +234,12 @@ conformidad:
     cuando: la persona pulsa «c  Revisar estado»
     entonces: corre 'qdd estado check' (solo lectura) y el panel muestra el resultado en verde o rojo
   - id: CCC-C13
-    titulo: Jerarquía visual
-    dado: 8 frentes abiertos, 6 ⏳ y 2 ❌
+    titulo: Panel liviano
+    dado: 9 tareas pendientes, 3 ⏳ y 1 ❌
     cuando: se dibuja el panel
-    entonces: la cabecera muestra 8, 6 y 2 en números grandes y cada frente lleva el color de su peor etapa
+    entonces: >
+      la cabecera dice «Tareas · HH:MM» con la versión, el resumen «4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan» va en una
+      línea en color, se ven las 4 más nuevas con «+5 más antiguas» y cada tarea lleva el color de su peor etapa
 
   - id: CCC-C17
     titulo: Un comando para la persona
@@ -252,7 +257,7 @@ conformidad:
     entonces: el comando sale de la cola sin ejecutarse
   - id: CCC-C20
     titulo: El panel avisa
-    dado: el panel está cerrado o no hay frentes
+    dado: el panel está cerrado o no hay tareas
     cuando: llega un comando pedido nuevo
     entonces: el panel se abre solo, una vez por pedido, sin quitarle el foco a la conversación
 
@@ -270,6 +275,23 @@ conformidad:
     cuando: la barra corre cada 2 s
     entonces: nvidia-smi se consulta como mucho cada 5 s y la línea sale aunque tarde más de 300 ms (con la última lectura o sin G)
 
+
+  - id: CCC-C21
+    titulo: Abrir la carpeta del proyecto
+    dado: consola_qdd=si y el sistema tiene un abridor (xdg-open, open o explorer)
+    cuando: la persona pulsa «o  Abrir carpeta»
+    entonces: la carpeta se abre en el gestor de archivos sin confirmación (no escribe nada); sin abridor se ve la carpeta sin el botón
+  - id: CCC-C22
+    titulo: Descartar una tarea con la ✕
+    cuando: la persona pulsa la ✕ de una tarea y luego «s  Sí»
+    entonces: la tarea pasa a descartada con su motivo, sale del panel y queda en el archivo
+  - id: CCC-C23
+    titulo: El panel en OpenCode
+    dado: OpenCode está en la máquina
+    cuando: se ejecuta 'qdd consola activar' (y luego 'actualizar' o 'qdd doctor --fix')
+    entonces: >
+      el panel queda en la barra lateral de OpenCode con la versión de qdd, registrado una sola vez en tui.json (con
+      respaldo; un tui.json inválido no se toca), lee 'qdd consola panel --json' cada 2 s y no ofrece acciones
 referencias:
   - referencias/settings.json
   - referencias/statusline.sh
