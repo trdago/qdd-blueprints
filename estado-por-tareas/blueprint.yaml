@@ -1,0 +1,135 @@
+# Blueprint QDD: estado por tareas.
+# Qué tarea se está trabajando ahora y si sigue viva: el agente la declara en curso, cada cosa que se ejecuta para ella
+# deja un pulso de vida y el panel la muestra «● running», con un latido sutil. Complementa a estado-por-frente (la
+# tabla de tareas × etapas) sin tocarla: la actividad no es estado.
+#
+#   qdd blueprint add estado-por-tareas --ref v1.0.0
+#   qdd blueprint apply estado-por-tareas
+#   qdd modules approve estado-por-tareas
+id: estado-por-tareas
+nombre: Estado por tareas
+version: 1.0.0
+licencia: Propietaria — uso interno
+descripcion: >
+  Tarea en curso y pulsos de vida: el agente declara la tarea que trabaja, sus herramientas, sus subagentes y los
+  comandos externos la hacen latir, y el panel la muestra «● running» con un latido sutil. Se apaga sola si nada late.
+  Requiere estado-por-frente con destino «archivo» (las tareas son sus filas) y lo implementa qdd ≥ 2.7.0.
+
+vocabulario:
+  - termino: tarea
+    definicion: Una fila de la tabla de estado-por-frente (un «frente»); es lo que se está trabajando.
+  - termino: en curso
+    definicion: Una tarea que el agente declaró y que latió hace menos de la vida; el panel la muestra «● running».
+  - termino: pulso
+    definicion: >
+      Una señal de vida de la tarea en curso: una herramienta del agente, un subagente o un comando externo (script,
+      test, deploy o worker) que trabaja en ella.
+  - termino: fuente
+    definicion: "De dónde viene un pulso, una de tres: agente, subagente o comando."
+  - termino: vida
+    definicion: Cuánto sigue en curso una tarea sin pulsos antes de apagarse sola (120 s).
+  - termino: actividad
+    definicion: >
+      El registro local de las tareas en curso y sus pulsos (.qdd/working/actividad.json); no es estado y no se
+      commitea.
+
+preguntas:
+  - id: pulsos
+    pregunta: ¿Qué deja pulsos de vida en la tarea en curso?
+    ayuda: Las herramientas del agente siempre laten; la pregunta es si los comandos externos también lo hacen.
+    por_defecto: todos
+    opciones:
+      - valor: todos
+        descripcion: >
+          Las herramientas del agente, sus subagentes y los comandos externos que llaman a
+          'qdd estado pulso <tarea> --fuente comando' (scripts, tests, deploys, workers).
+        decisiones: ["Los scripts largos del proyecto (tests, deploys, workers) llaman a 'qdd estado pulso <tarea> --fuente comando'"]
+      - valor: solo-agente
+        descripcion: Solo las herramientas del agente y sus subagentes; los comandos externos no dejan pulsos.
+
+ficha:
+  nombre: Estado por tareas
+  objetivo_operativo:
+    problema: >
+      La tabla dice cómo va cada tarea, pero no cuál se está trabajando ahora ni si el agente sigue vivo: una sesión
+      colgada, un subagente o un deploy largo se ven igual que una tarea quieta, y quien mira el panel no sabe si
+      esperar o intervenir.
+    criterio_de_exito: >
+      En el panel, la tarea que se trabaja dice «● running» y late con cada herramienta, subagente o comando que corre
+      para ella; si nada late durante la vida, se apaga sola. La tabla de estado no cambia por la actividad.
+  objetivo_tecnologico:
+    arquitectura: >
+      Registro local de actividad por tarea (desde, último pulso, fuente, quién) fuera de git, escrito por la CLI
+      ('qdd estado activa' y 'qdd estado pulso', o la tool MCP qdd_estado con accion=activar|pulso|terminar). El JSON del
+      panel ('qdd consola panel --json') lo entrega ya resuelto y los paneles (Claude Code, OpenCode) solo lo dibujan:
+      el latido es un tic local, sin volver a ejecutar la CLI.
+    decisiones:
+      - "La tarea en curso la declara el agente al empezar a trabajarla; puede haber varias (sesiones distintas)"
+      - "Un pulso sin tarea late la última activada; un pulso con tarea la enciende si estaba apagada"
+      - "La vida es de 120 s sin pulsos; el panel envía como mucho un pulso cada 5 s"
+      - "Se ve como «● running»: el ● alterna tenue y brillante cada 1 s y destella en acento con cada pulso"
+    invariantes:
+      - "La actividad no es estado: no cambia la tabla de estado-por-frente y no se commitea"
+      - "Solo una tarea abierta puede estar en curso; cerrarla o descartarla la apaga"
+      - "Una tarea sin pulsos durante la vida deja de estar en curso: nunca queda encendida para siempre"
+      - "Un pulso nunca demora ni bloquea la herramienta, el subagente o el comando que lo produjo"
+      - "Una tarea en curso siempre se ve en el panel, aunque no esté entre las más nuevas"
+      - "El latido es sutil: un destello por pulso, sin abrir ni enfocar el panel ni sonar"
+      - "La actividad no guarda credenciales ni datos personales: «quién» es una herramienta, no una persona"
+
+conformidad:
+  - id: EPT-C01
+    titulo: El agente declara la tarea en curso
+    cuando: el agente activa una tarea abierta
+    entonces: queda en curso en la actividad local y la tabla de estado no cambia
+  - id: EPT-C02
+    titulo: Solo tareas abiertas que existen
+    cuando: se activa o se pulsa una tarea que no existe, o con una fuente que no es agente, subagente ni comando
+    entonces: es un error y no se escribe nada
+  - id: EPT-C03
+    titulo: Un pulso sin tarea late la última activada
+    dado: dos tareas activadas
+    cuando: llega un pulso sin tarea
+    entonces: late la última activada, con su hora y su fuente; sin tarea en curso no hace nada y no falla
+  - id: EPT-C04
+    titulo: Un comando externo late su tarea
+    cuando: un comando deja un pulso con la tarea
+    entonces: la tarea queda en curso con fuente comando
+  - id: EPT-C05
+    titulo: Se apaga sola
+    dado: una tarea en curso
+    cuando: pasa la vida sin pulsos
+    entonces: deja de estar en curso y un pulso sin tarea no la revive
+  - id: EPT-C06
+    titulo: Terminar, cerrar o descartar la apagan
+    cuando: se termina, se cierra o se descarta una tarea en curso
+    entonces: deja de estar en curso; terminar una que no lo estaba no es un error
+  - id: EPT-C07
+    titulo: La tarea en curso siempre se ve
+    dado: una tarea en curso que no está entre las más nuevas
+    cuando: se arma el panel
+    entonces: se ve con su actividad, las demás no la llevan y «actual» es la última activada
+  - id: EPT-C08
+    titulo: «● running» con latido
+    dado: una tarea en curso en el panel
+    cuando: pasa el tiempo
+    entonces: dice «running» atenuado y el ● alterna tenue y brillante cada 1 s
+  - id: EPT-C09
+    titulo: Destello con cada pulso
+    cuando: el pulso de la tarea cambia entre dos lecturas
+    entonces: el ● destella en el color de acento por un instante y vuelve a su latido
+  - id: EPT-C10
+    titulo: Las herramientas del agente laten sin demorarse
+    dado: una tarea en curso
+    cuando: el agente ejecuta herramientas o lanza un subagente
+    entonces: la herramienta sigue sin esperar, el panel destella y la CLI recibe como mucho un pulso cada 5 s
+  - id: EPT-C11
+    titulo: Lo mismo en un panel de solo lectura
+    cuando: otro panel (p. ej. OpenCode) lee el mismo JSON
+    entonces: muestra «● running», el latido y el destello igual
+  - id: EPT-C12
+    titulo: El agente de otro panel también late
+    cuando: el agente de ese panel ejecuta una herramienta (subagente si es la de tareas)
+    entonces: deja su pulso con el mismo tope de 5 s
+
+referencias: []

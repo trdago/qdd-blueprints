@@ -8,6 +8,7 @@ conformidad) de módulos que se reutilizan en todos los proyectos. Cualquiera pu
 |---|---|
 | [`estado-por-frente`](estado-por-frente/blueprint.yaml) | Reporte de avance en una tabla de frentes × etapas con reglas de evidencia auditables. |
 | [`consola-claude-code`](consola-claude-code/blueprint.yaml) | Autocompactación, modelo y esfuerzo por defecto, barra de estado (proyecto · modelo · contexto · 5h · semana) y, con `consola_qdd`, panel de estado con acciones. Referencia en `referencias/`. |
+| [`estado-por-tareas`](estado-por-tareas/blueprint.yaml) | Tarea en curso y pulsos de vida: «● running» con un latido sutil en el panel, que se apaga solo si nada late (requiere `estado-por-frente`). |
 
 ## Usarlos
 

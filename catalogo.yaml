@@ -2,5 +2,6 @@
 blueprints:
   estado-por-frente: estado-por-frente
   consola-claude-code: consola-claude-code
+  estado-por-tareas: estado-por-tareas
 paquetes:
-  base: [estado-por-frente, consola-claude-code]
+  base: [estado-por-frente, consola-claude-code, estado-por-tareas]
