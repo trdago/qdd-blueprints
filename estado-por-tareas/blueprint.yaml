@@ -193,6 +193,7 @@ preguntas:
 
 ficha:
   nombre: Estado por tareas
+  rutas: [".qdd/project/estado.yaml"]
   objetivo_operativo:
     problema: >
       Los reportes de avance en prosa no se pueden auditar ni comparar entre proyectos: un «listo» sin evidencia, un
