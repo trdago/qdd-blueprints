@@ -9,7 +9,7 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 4.0.0
+version: 5.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
@@ -100,8 +100,9 @@ preguntas:
       Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de estado por
       frente (mod qdd-estado@qdd, junto a la conversación con /tui fullscreen) y deja la barra en Go
       ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N frentes · ⏳n ❌m» y funciona en
-      Windows sin bash ni jq. Desde el panel se aprueban las fichas en borrador y se revisa el estado, con un segundo
-      paso para lo que escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
+      Windows sin bash ni jq. Desde el panel se aprueban las fichas en borrador, se revisa el estado y se ejecutan con un
+      clic los comandos que la IA deja para la persona (p. ej. publicar una versión), con un segundo paso para lo que
+      escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
     por_defecto: "no"
     opciones:
       - valor: "no"
@@ -113,6 +114,7 @@ preguntas:
         decisiones:
           - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-estado@qdd y barra 'qdd consola statusline')"
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
+          - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
@@ -161,7 +163,8 @@ ficha:
       - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
       - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
       - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
-      - "El panel no ejecuta comandos ni texto libre: solo ids de acción, y la aprobación de una ficha la sigue haciendo una persona"
+      - "El panel solo pasa ids de acción. El único texto libre que se ejecuta es un comando que la IA dejó para la persona, y solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
+      - "La aprobación de una ficha la sigue haciendo una persona"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
       - "La barra no muestra credenciales, correos ni datos personales"
@@ -232,6 +235,26 @@ conformidad:
     dado: 8 frentes abiertos, 6 ⏳ y 2 ❌
     cuando: se dibuja el panel
     entonces: la cabecera muestra 8, 6 y 2 en números grandes y cada frente lleva el color de su peor etapa
+
+  - id: CCC-C17
+    titulo: Un comando para la persona
+    dado: consola_qdd=si y la IA no puede publicar el tag de una versión (no tiene permiso)
+    cuando: la IA lo deja con qdd_consola_pedir, con su motivo
+    entonces: el panel lo muestra en «▶ Para ti» con su motivo, el comando exacto y la carpeta, y nada se ejecuta todavía
+  - id: CCC-C18
+    titulo: Ejecutarlo con un clic
+    dado: un comando pedido en el panel
+    cuando: la persona pulsa su tecla y luego «s  Sí»
+    entonces: corre en su carpeta y el panel muestra el resultado; si terminó bien sale de la cola, si falló queda para reintentarlo
+  - id: CCC-C19
+    titulo: Descartar un comando pedido
+    cuando: la persona pulsa su tecla y luego «x  Descartar»
+    entonces: el comando sale de la cola sin ejecutarse
+  - id: CCC-C20
+    titulo: El panel avisa
+    dado: el panel está cerrado o no hay frentes
+    cuando: llega un comando pedido nuevo
+    entonces: el panel se abre solo, una vez por pedido, sin quitarle el foco a la conversación
 
   - id: CCC-C14
     titulo: Segmento de recursos
