@@ -9,13 +9,14 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 3.0.0
+version: 4.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
   usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
   frente del proyecto (qdd estado statusline, blueprint estado-por-frente) y un panel que lo muestra y desde el que
-  se aprueban fichas o se revisa el estado con una confirmación.
+  se aprueban fichas o se revisa el estado con una confirmación. Opcional: una segunda línea con el uso del equipo
+  (D disco · G GPU · R RAM · C CPU).
 
 vocabulario:
   - termino: contexto
@@ -35,6 +36,11 @@ vocabulario:
     definicion: >
       Resumen de una línea del estado por frente del proyecto («◧ 5 frentes · ⏳4 ❌1»), que entrega
       qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-frente con destino «archivo»).
+  - termino: segmento de recursos
+    definicion: >
+      Segunda línea de la barra con el uso del equipo en etiquetas de una letra para ahorrar espacio:
+      «D 70% · G0 7% · G1 — · R 38% · C 12%». D es el disco de la carpeta del proyecto, G0…Gn el % de uso de cada GPU,
+      R la RAM usada y C la CPU usada.
   - termino: panel de estado
     definicion: >
       Panel de Claude Code (mod qdd-estado@qdd) con el resumen en números grandes, la tabla de frentes × etapas, lo
@@ -108,6 +114,22 @@ preguntas:
           - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-estado@qdd y barra 'qdd consola statusline')"
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
+  - id: recursos
+    pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
+    ayuda: >
+      Agrega una segunda línea con etiquetas de una letra: D (disco de la carpeta del proyecto), G0…Gn (% de uso de cada
+      GPU), R (RAM usada) y C (CPU usada). Sirve para ver a tiempo un disco que se llena o una GPU ocupada. Solo con la
+      barra de QDD (consola_qdd=si); la referencia en bash no la trae.
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: La barra no muestra el uso del equipo.
+      - valor: si
+        descripcion: "Segunda línea «D N% · G0 N% · G1 — · R N% · C N%»."
+        depende_de: ["consola_qdd=si", "qdd ≥ 2.4.0", "nvidia-smi para las GPU NVIDIA"]
+        decisiones:
+          - "Cada persona ejecuta una vez 'qdd consola activar --recursos'"
+          - "D = disco de la carpeta del proyecto (usado / (usado + disponible), como df); R = RAM usada (total − disponible); C = CPU usada entre dos lecturas de la barra; G = % de uso de cada GPU (NVIDIA primero, después las demás)"
 
 ficha:
   nombre: Consola de Claude Code
@@ -133,7 +155,8 @@ ficha:
       - "El panel ordena la lectura en cuatro niveles: resumen en números grandes de 3 filas (frentes, ⏳, ❌), títulos en negrita, texto y detalle atenuado; el tamaño de letra no se usa porque la terminal tiene uno solo"
       - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada frente toma el color de su peor etapa"
     invariantes:
-      - "La barra no usa la red y solo lee el JSON de la consola; la única lectura extra permitida es el segmento de estado, que lee solo el archivo local del proyecto, tiene un tope de 100 ms y no muestra nada si falla"
+      - "La barra no usa la red y solo lee el JSON de la consola; las únicas lecturas extra permitidas son el segmento de estado (solo el archivo local del proyecto, tope de 100 ms) y el segmento de recursos (solo contadores locales del sistema; la GPU se consulta como mucho cada 5 s con tope de 300 ms); lo que falla no se muestra"
+      - "Un recurso que existe pero no se puede medir sin permisos (p. ej. el % de una GPU integrada) se muestra con «—»; uno que el sistema no expone se omite; nunca se muestra un valor inventado"
       - "Una barra propia (statusLine) nunca se reemplaza sin que la persona lo pida"
       - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
       - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
@@ -209,6 +232,20 @@ conformidad:
     dado: 8 frentes abiertos, 6 ⏳ y 2 ❌
     cuando: se dibuja el panel
     entonces: la cabecera muestra 8, 6 y 2 en números grandes y cada frente lleva el color de su peor etapa
+
+  - id: CCC-C14
+    titulo: Segmento de recursos
+    dado: recursos=si, disco del proyecto al 70 %, una GPU NVIDIA al 7 % y una integrada sin lectura, RAM al 38 % y CPU al 12 %
+    cuando: corre la barra de QDD
+    entonces: la segunda línea es «D 70% · G0 7% · G1 — · R 38% · C 12%»
+  - id: CCC-C15
+    titulo: Recursos sin lectura no se inventan
+    cuando: no hay nvidia-smi, es la primera lectura de la CPU (no hay con qué comparar) o el sistema no expone un contador
+    entonces: ese recurso no aparece (o aparece con «—» si existe sin permiso), sin ceros inventados ni errores
+  - id: CCC-C16
+    titulo: La GPU no demora la barra
+    cuando: la barra corre cada 2 s
+    entonces: nvidia-smi se consulta como mucho cada 5 s y la línea sale aunque tarde más de 300 ms (con la última lectura o sin G)
 
 referencias:
   - referencias/settings.json
