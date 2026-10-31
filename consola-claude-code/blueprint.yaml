@@ -121,6 +121,7 @@ preguntas:
           - "Si OpenCode está en la máquina, 'qdd consola activar' deja el panel en su barra lateral, de solo lectura, con la misma sincronización y la versión de qdd"
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
+          - "Un pedido extiende una tarea del estado (la que indica la IA o la tarea en curso): si después de un mensaje de la persona esa tarea sigue cambiando (prefirió seguir trabajando en vez de ejecutarlo), el pedido sale de «▶ Para ti»; cuando la IA lo pide de nuevo para la misma tarea, vuelve con su misma tecla"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
@@ -163,7 +164,7 @@ ficha:
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
       - "La barra no muestra la carpeta del proyecto ni el resumen de tareas: los dos están en el panel (consola_qdd=si)"
-      - "La lista de la derecha termina 2 columnas antes del borde, para que no salte de renglón dentro del margen de la consola"
+      - "La lista de la derecha termina 6 columnas antes del borde (la consola dibuja la barra con su propio margen y corta con «…» lo que no cabe) y su relleno empieza con un blanco que la consola no borra (U+2800), porque los espacios al inicio de una línea sí los borra"
       - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
       - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
     invariantes:
@@ -189,7 +190,8 @@ conformidad:
     cuando: corre el script de la barra
     entonces: >
       muestra «<modelo> · auto» a la izquierda y «contexto 38%» a la derecha en la primera línea; debajo, pegados a la
-      derecha, «5h 12% ↻ HH:MM» y «semana 40% ↻ <día> HH:MM»; cada línea termina 2 columnas antes del borde
+      derecha, «5h 12% ↻ HH:MM» y «semana 40% ↻ <día> HH:MM»; cada línea termina 6 columnas antes del borde y la
+      consola no le quita el relleno
   - id: CCC-C02
     titulo: Campos ausentes se omiten
     dado: el JSON trae solo proyecto y modelo, y el modo no se conoce
@@ -287,6 +289,14 @@ conformidad:
     cuando: la barra corre cada 2 s
     entonces: nvidia-smi se consulta como mucho cada 5 s y la línea sale aunque tarde más de 300 ms (con la última lectura o sin G)
 
+
+  - id: CCC-C24
+    titulo: Seguir trabajando en vez de ejecutar
+    dado: un pedido para publicar la tarea «barra» espera en «▶ Para ti»
+    cuando: la persona, en vez de ejecutarlo, pide seguir trabajando y la IA cambia la tarea «barra»
+    entonces: >
+      el pedido sale de «▶ Para ti» al instante (lo que la IA anota en el mismo turno en que lo pide no lo saca); cuando
+      la IA lo pide de nuevo para «barra», reaparece con la misma tecla; otra tarea que cambia no lo toca
 
   - id: CCC-C21
     titulo: Abrir la carpeta del proyecto
