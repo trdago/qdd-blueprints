@@ -4,12 +4,12 @@
 # uso de 5 h y uso de la semana).
 # Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
 #
-#   qdd blueprint add consola-claude-code --ref v1.0.0
+#   qdd blueprint add consola-claude-code
 #   qdd blueprint apply consola-claude-code
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 7.1.0
+version: 8.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
@@ -46,13 +46,14 @@ vocabulario:
       R la RAM usada y C la CPU usada.
   - termino: panel de estado
     definicion: >
-      Panel de Claude Code (mod qdd-tareas@qdd) con el resumen en números grandes, la tabla de tareas × etapas, lo
+      Panel de Claude Code (mod qdd-tareas@qdd) con una línea de resumen, la tabla de tareas × etapas, lo
       que espera cada ⏳ y de quién, las fallas y las acciones; va junto a la conversación en fullscreen y encima del
       prompt si la terminal es angosta.
   - termino: acción del panel
     definicion: >
-      Botón del panel que pide a qdd una operación que qdd ofrece en 'qdd consola panel --json' (aprobar una ficha en
-      borrador, revisar el estado, auditar) y que qdd ejecuta con 'qdd consola accion <id>'. El panel no arma comandos.
+      Botón del panel para una operación que qdd ofrece en 'qdd consola panel --json' (aprobar una ficha, revisar el
+      estado, auditar, abrir la carpeta, descartar una tarea, ejecutar un pedido, atender una etapa) y ejecuta con
+      'qdd consola accion <id>'; el panel no arma comandos.
 
 preguntas:
   - id: ventana_compactacion
@@ -100,12 +101,9 @@ preguntas:
   - id: consola_qdd
     pregunta: ¿La consola usa el panel y la barra de QDD?
     ayuda: >
-      Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de tareas
-      (mod qdd-tareas@qdd, junto a la conversación con /tui fullscreen; /tareas lo abre) y deja la barra en Go
-      ('qdd consola statusline'), que muestra lo mismo que la referencia más el modo de la IA y funciona en
-      Windows sin bash ni jq. Si OpenCode está en la máquina, deja también el panel en su barra lateral, solo para mirar. Desde el panel se aprueban las fichas en borrador, se revisa el estado y se ejecutan con un
-      clic los comandos que la IA deja para la persona (p. ej. publicar una versión), con un segundo paso para lo que
-      escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
+      Con «si», cada persona ejecuta una vez 'qdd consola activar': instala el panel de tareas en Claude Code (y uno de
+      solo lectura en OpenCode, si está) y la barra de QDD en Go, que suma el modo de la IA y funciona en Windows sin
+      bash ni jq. Con «no» se usa referencias/statusline.sh.
     por_defecto: "no"
     opciones:
       - valor: "no"
@@ -113,24 +111,131 @@ preguntas:
         decisiones: ["Barra con referencias/statusline.sh; sin panel de estado"]
       - valor: si
         descripcion: Panel de estado y barra de QDD, con un solo comando por persona.
-        depende_de: ["qdd ≥ 2.3.0", "Claude Code ≥ 2.1.287 (mods)"]
+        depende_de: ["qdd ≥ 2.8.0", "Claude Code ≥ 2.1.287 (mods)"]
         decisiones:
           - "Cada persona ejecuta una vez 'qdd consola activar' (panel qdd-tareas@qdd, que reemplaza a qdd-estado@qdd, y barra 'qdd consola statusline')"
+          - "El panel va junto a la conversación con /tui fullscreen, encima del prompt si la terminal es angosta; /tareas lo abre"
           - "Panel liviano (qdd ≥ 2.7.0): solo las 4 tareas pendientes más nuevas (una tarea terminada sale sola) y «+N más antiguas»; cada una con su ✕ para descartarla con «s  Sí»; arriba la carpeta del proyecto con «o  Abrir carpeta» (gestor de archivos del sistema)"
           - "Con el blueprint estado-por-tareas, la tarea en curso dice «● running» y late con cada pulso"
           - "Si OpenCode está en la máquina, 'qdd consola activar' deja el panel en su barra lateral, de solo lectura, con la misma sincronización y la versión de qdd"
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
-          - "Un pedido extiende una tarea del estado (la que indica la IA o la tarea en curso): si después de un mensaje de la persona esa tarea sigue cambiando (prefirió seguir trabajando en vez de ejecutarlo), el pedido sale de «▶ Para ti»; cuando la IA lo pide de nuevo para la misma tarea, vuelve con su misma tecla"
-          - "Atender una etapa: cada etapa ⏳ o ❌ de una tarea abierta es un botón de la tabla; al pulsarla, el panel pide a qdd el mensaje de esa etapa (qdd lo vuelve a calcular) y lo envía a la conversación como un mensaje de la persona: la IA intenta completarla y, si falta algo, deja un pedido con esa tarea o pregunta"
+          - "Un pedido extiende una tarea del estado: la que indica la IA o, sin ella, la tarea en curso"
+          - "Si después de un mensaje de la persona esa tarea sigue cambiando (prefirió seguir trabajando en vez de ejecutarlo), el pedido sale de «▶ Para ti»; cuando la IA lo pide de nuevo para la misma tarea, vuelve con su misma tecla"
+          - "Atender una etapa (qdd ≥ 2.8.0): cada etapa ⏳ o ❌ de una tarea abierta es un botón de la tabla"
+          - "Al pulsarla, el panel pide a qdd el mensaje de esa etapa (qdd lo vuelve a calcular) y lo envía a la conversación como un mensaje de la persona: la IA intenta completarla y, si falta algo, deja un pedido con esa tarea o pregunta"
           - "Textos estilo chat: lo que leen la persona y la IA es un resumen corto con símbolos; el mensaje para atender una etapa cabe en 280 caracteres (se acortan el nombre y lo citado, nunca las instrucciones) y el motivo de un pedido en 60 (qdd rechaza uno más largo)"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
+          - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
+          - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
+        invariantes:
+          - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
+          - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
+          - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
+          - "El panel solo pasa ids de acción; el único texto libre que se ejecuta es un comando que la IA dejó para la persona"
+          - "Ese comando corre solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
+          - "El único texto que el panel envía a la conversación es el mensaje que qdd arma para atender una etapa, y solo cuando la persona pulsa esa etapa"
+          - "Un tipo de acción nuevo y opcional (p. ej. atender) qdd lo entrega solo al panel que lo pide ('qdd consola panel --con <tipo>'); el panel muestra solo los tipos que sabe dibujar, nunca un botón sin tecla o sin etiqueta"
+        conformidad:
+          - id: CCC-C06
+            titulo: El modo de la IA
+            dado: consola_qdd=si y el último mensaje de la persona fue en modo plan
+            cuando: corre la barra de QDD
+            entonces: la izquierda dice «<modelo> · plan»; sin un modo anotado en las últimas 12 h, solo «<modelo>»
+          - id: CCC-C08
+            titulo: Un solo interruptor, repetible
+            dado: consola_qdd=si
+            cuando: la persona ejecuta 'qdd consola activar' una o más veces
+            entonces: el panel qdd-tareas@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
+          - id: CCC-C09
+            titulo: Doctor mantiene la consola al día
+            dado: la consola se activó y luego se actualizó qdd
+            cuando: corre 'qdd doctor'
+            entonces: reporta el panel con la versión vieja y 'qdd doctor --fix' lo deja en la versión nueva
+          - id: CCC-C10
+            titulo: Aprobar una ficha desde el panel
+            dado: el proyecto tiene la ficha «pagos» en borrador
+            cuando: la persona pulsa su botón y luego «s  Sí»
+            entonces: qdd la aprueba igual que 'qdd modules approve pagos' y el panel muestra el resultado; con «n» no cambia nada
+          - id: CCC-C11
+            titulo: Una acción que qdd no ofrece se rechaza
+            cuando: se pide 'qdd consola accion' con un id que 'qdd consola panel --json' no ofrece, o una acción que escribe sin --confirmado
+            entonces: qdd sale con error y no ejecuta nada
+          - id: CCC-C12
+            titulo: Revisar el estado sin confirmación
+            dado: el proyecto tiene .qdd/project/estado.yaml
+            cuando: la persona pulsa «c  Revisar estado»
+            entonces: corre 'qdd estado check' (solo lectura) y el panel muestra el resultado en verde o rojo
+          - id: CCC-C13
+            titulo: Panel liviano
+            dado: 9 tareas pendientes, 3 ⏳ y 1 ❌
+            cuando: se dibuja el panel
+            entonces: >
+              la cabecera dice «Tareas · HH:MM» con la versión, el resumen «4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan» va en una
+              línea en color, se ven las 4 más nuevas con «+5 más antiguas» y cada tarea lleva el color de su peor etapa
+          - id: CCC-C17
+            titulo: Un comando para la persona
+            dado: consola_qdd=si y la IA no puede publicar el tag de una versión (no tiene permiso)
+            cuando: la IA lo deja con qdd_consola_pedir, con su motivo
+            entonces: el panel lo muestra en «▶ Para ti» con su motivo, el comando exacto y la carpeta, y nada se ejecuta todavía
+          - id: CCC-C18
+            titulo: Ejecutarlo con un clic
+            dado: un comando pedido en el panel
+            cuando: la persona pulsa su tecla y luego «s  Sí»
+            entonces: corre en su carpeta y el panel muestra el resultado; si terminó bien sale de la cola, si falló queda para reintentarlo
+          - id: CCC-C19
+            titulo: Descartar un comando pedido
+            cuando: la persona pulsa su tecla y luego «x  Descartar»
+            entonces: el comando sale de la cola sin ejecutarse
+          - id: CCC-C20
+            titulo: El panel avisa
+            dado: el panel está cerrado o no hay tareas
+            cuando: llega un comando pedido nuevo
+            entonces: el panel se abre solo, una vez por pedido, sin quitarle el foco a la conversación
+          - id: CCC-C21
+            titulo: Abrir la carpeta del proyecto
+            dado: consola_qdd=si y el sistema tiene un abridor (xdg-open, open o explorer)
+            cuando: la persona pulsa «o  Abrir carpeta»
+            entonces: la carpeta se abre en el gestor de archivos sin confirmación (no escribe nada); sin abridor se ve la carpeta sin el botón
+          - id: CCC-C22
+            titulo: Descartar una tarea con la ✕
+            cuando: la persona pulsa la ✕ de una tarea y luego «s  Sí»
+            entonces: la tarea pasa a descartada con su motivo, sale del panel y queda en el archivo
+          - id: CCC-C23
+            titulo: El panel en OpenCode
+            dado: OpenCode está en la máquina
+            cuando: se ejecuta 'qdd consola activar' (y luego 'actualizar' o 'qdd doctor --fix')
+            entonces: >
+              el panel queda en la barra lateral de OpenCode con la versión de qdd, registrado una sola vez en tui.json (con
+              respaldo; un tui.json inválido no se toca), lee 'qdd consola panel --json' cada 2 s y no ofrece acciones
+          - id: CCC-C24
+            titulo: Seguir trabajando en vez de ejecutar
+            dado: un pedido para publicar la tarea «barra» espera en «▶ Para ti»
+            cuando: la persona, en vez de ejecutarlo, pide seguir trabajando y la IA cambia la tarea «barra»
+            entonces: >
+              el pedido sale de «▶ Para ti» al instante (lo que la IA anota en el mismo turno en que lo pide no lo saca); cuando
+              la IA lo pide de nuevo para «barra», reaparece con la misma tecla; otra tarea que cambia no lo toca
+          - id: CCC-C25
+            titulo: Atender una etapa
+            dado: la tarea «barra» tiene «Publicación» en ⏳, esperando 5 h de uso medido
+            cuando: la persona pulsa esa ⏳ en la tabla del panel
+            entonces: >
+              la conversación recibe el mensaje de qdd para esa etapa (qué espera y de quién, que intente completarla y, si falta
+              algo, deje un pedido con la tarea «barra» o pregunte); si la etapa ya no espera, no se envía nada y el panel dice
+              por qué
+          - id: CCC-C26
+            titulo: Un panel anterior no muestra lo que no conoce
+            dado: un qdd que ofrece «atender» y un panel que no lo dibuja
+            cuando: el panel lee 'qdd consola panel --json' sin '--con atender'
+            entonces: >
+              qdd no entrega las acciones atender y el panel no muestra ningún botón «undefined»; un tipo que el panel no conoce
+              nunca sale en «Acciones»
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
     ayuda: >
-      Agrega una última línea, pegada a la derecha, con etiquetas de una letra: D (disco de la carpeta del proyecto), G0…Gn (% de uso de cada
-      GPU), R (RAM usada) y C (CPU usada). Sirve para ver a tiempo un disco que se llena o una GPU ocupada. Solo con la
-      barra de QDD (consola_qdd=si); la referencia en bash no la trae.
+      Una última línea, a la derecha: D disco de la carpeta del proyecto, G0…Gn % de uso de cada GPU, R RAM usada y C
+      CPU usada. Sirve para ver a tiempo un disco que se llena o una GPU ocupada. Solo la barra de QDD la trae.
+    si: {consola_qdd: si}
     por_defecto: "no"
     opciones:
       - valor: "no"
@@ -141,6 +246,22 @@ preguntas:
         decisiones:
           - "Cada persona ejecuta una vez 'qdd consola activar --recursos'"
           - "D = disco de la carpeta del proyecto (usado / (usado + disponible), como df); R = RAM usada (total − disponible); C = CPU usada entre dos lecturas de la barra; G = % de uso de cada GPU (NVIDIA primero, después las demás)"
+        invariantes:
+          - "Un recurso que existe pero no se puede medir sin permisos (p. ej. el % de una GPU integrada) se muestra con «—»; uno que el sistema no expone se omite; nunca se muestra un valor inventado"
+        conformidad:
+          - id: CCC-C14
+            titulo: Segmento de recursos
+            dado: recursos=si, disco del proyecto al 70 %, una GPU NVIDIA al 7 % y una integrada sin lectura, RAM al 38 % y CPU al 12 %
+            cuando: corre la barra de QDD
+            entonces: la última línea, pegada a la derecha, es «D 70% · G0 7% · G1 — · R 38% · C 12%»
+          - id: CCC-C15
+            titulo: Recursos sin lectura no se inventan
+            cuando: no hay nvidia-smi, es la primera lectura de la CPU (no hay con qué comparar) o el sistema no expone un contador
+            entonces: ese recurso no aparece (o aparece con «—» si existe sin permiso), sin ceros inventados ni errores
+          - id: CCC-C16
+            titulo: La GPU no demora la barra
+            cuando: la barra corre cada 2 s
+            entonces: nvidia-smi se consulta como mucho cada 5 s y la línea sale aunque tarde más de 300 ms (con la última lectura o sin G)
 
 ficha:
   nombre: Consola de Claude Code
@@ -167,18 +288,10 @@ ficha:
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
       - "La barra no muestra la carpeta del proyecto ni el resumen de tareas: los dos están en el panel (consola_qdd=si)"
       - "La lista de la derecha termina 6 columnas antes del borde (la consola dibuja la barra con su propio margen y corta con «…» lo que no cabe) y su relleno empieza con un blanco que la consola no borra (U+2800), porque los espacios al inicio de una línea sí los borra"
-      - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
-      - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
     invariantes:
-      - "La barra no usa la red y solo lee el JSON de la consola; las únicas lecturas extra permitidas son el ancho de la terminal, el modo de la IA (solo el archivo local que qdd anota) y el segmento de recursos (solo contadores locales del sistema; la GPU se consulta como mucho cada 5 s con tope de 300 ms); lo que falla no se muestra"
-      - "Un recurso que existe pero no se puede medir sin permisos (p. ej. el % de una GPU integrada) se muestra con «—»; uno que el sistema no expone se omite; nunca se muestra un valor inventado"
+      - "La barra no usa la red y solo lee el JSON de la consola; lo que falla no se muestra"
+      - "Las únicas lecturas extra de la barra son el ancho de la terminal, el modo de la IA (solo el archivo local que qdd anota) y el segmento de recursos (solo contadores locales del sistema; la GPU como mucho cada 5 s, con tope de 300 ms)"
       - "Una barra propia (statusLine) nunca se reemplaza sin que la persona lo pida"
-      - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
-      - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
-      - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
-      - "El panel solo pasa ids de acción. El único texto libre que se ejecuta es un comando que la IA dejó para la persona, y solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
-      - "El único texto que el panel envía a la conversación es el mensaje que qdd arma para atender una etapa, y solo cuando la persona pulsa esa etapa"
-      - "Un tipo de acción nuevo y opcional (p. ej. atender) qdd lo entrega solo al panel que lo pide ('qdd consola panel --con <tipo>'); el panel muestra solo los tipos que sabe dibujar, nunca un botón sin tecla o sin etiqueta"
       - "La aprobación de una ficha la sigue haciendo una persona"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
@@ -215,126 +328,12 @@ conformidad:
     dado: autoCompactWindow fijado en el modelo por defecto
     cuando: el contexto llega a esa ventana
     entonces: la conversación se compacta y la tarea en curso continúa
-  - id: CCC-C06
-    titulo: El modo de la IA
-    dado: consola_qdd=si y el último mensaje de la persona fue en modo plan
-    cuando: corre la barra de QDD
-    entonces: la izquierda dice «<modelo> · plan»; sin un modo anotado en las últimas 12 h, solo «<modelo>»
   - id: CCC-C07
     titulo: Sin ancho o angosta no se desordena
     cuando: no se puede saber el ancho de la terminal, o el contexto no cabe junto al modelo
     entonces: >
       sin ancho, la primera línea es «<modelo> · <modo> · contexto N%» y el resto va debajo sin relleno; angosta, el
       contexto baja a la lista de la derecha
-
-  - id: CCC-C08
-    titulo: Un solo interruptor, repetible
-    dado: consola_qdd=si
-    cuando: la persona ejecuta 'qdd consola activar' una o más veces
-    entonces: el panel qdd-tareas@qdd queda instalado con la versión de su qdd, y la barra es la de QDD salvo que fuera propia
-  - id: CCC-C09
-    titulo: Doctor mantiene la consola al día
-    dado: la consola se activó y luego se actualizó qdd
-    cuando: corre 'qdd doctor'
-    entonces: reporta el panel con la versión vieja y 'qdd doctor --fix' lo deja en la versión nueva
-  - id: CCC-C10
-    titulo: Aprobar una ficha desde el panel
-    dado: el proyecto tiene la ficha «pagos» en borrador
-    cuando: la persona pulsa su botón y luego «s  Sí»
-    entonces: qdd la aprueba igual que 'qdd modules approve pagos' y el panel muestra el resultado; con «n» no cambia nada
-  - id: CCC-C11
-    titulo: Una acción que qdd no ofrece se rechaza
-    cuando: se pide 'qdd consola accion' con un id que 'qdd consola panel --json' no ofrece, o una acción que escribe sin --confirmado
-    entonces: qdd sale con error y no ejecuta nada
-  - id: CCC-C12
-    titulo: Revisar el estado sin confirmación
-    dado: el proyecto tiene .qdd/project/estado.yaml
-    cuando: la persona pulsa «c  Revisar estado»
-    entonces: corre 'qdd estado check' (solo lectura) y el panel muestra el resultado en verde o rojo
-  - id: CCC-C13
-    titulo: Panel liviano
-    dado: 9 tareas pendientes, 3 ⏳ y 1 ❌
-    cuando: se dibuja el panel
-    entonces: >
-      la cabecera dice «Tareas · HH:MM» con la versión, el resumen «4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan» va en una
-      línea en color, se ven las 4 más nuevas con «+5 más antiguas» y cada tarea lleva el color de su peor etapa
-
-  - id: CCC-C17
-    titulo: Un comando para la persona
-    dado: consola_qdd=si y la IA no puede publicar el tag de una versión (no tiene permiso)
-    cuando: la IA lo deja con qdd_consola_pedir, con su motivo
-    entonces: el panel lo muestra en «▶ Para ti» con su motivo, el comando exacto y la carpeta, y nada se ejecuta todavía
-  - id: CCC-C18
-    titulo: Ejecutarlo con un clic
-    dado: un comando pedido en el panel
-    cuando: la persona pulsa su tecla y luego «s  Sí»
-    entonces: corre en su carpeta y el panel muestra el resultado; si terminó bien sale de la cola, si falló queda para reintentarlo
-  - id: CCC-C19
-    titulo: Descartar un comando pedido
-    cuando: la persona pulsa su tecla y luego «x  Descartar»
-    entonces: el comando sale de la cola sin ejecutarse
-  - id: CCC-C20
-    titulo: El panel avisa
-    dado: el panel está cerrado o no hay tareas
-    cuando: llega un comando pedido nuevo
-    entonces: el panel se abre solo, una vez por pedido, sin quitarle el foco a la conversación
-
-  - id: CCC-C14
-    titulo: Segmento de recursos
-    dado: recursos=si, disco del proyecto al 70 %, una GPU NVIDIA al 7 % y una integrada sin lectura, RAM al 38 % y CPU al 12 %
-    cuando: corre la barra de QDD
-    entonces: la última línea, pegada a la derecha, es «D 70% · G0 7% · G1 — · R 38% · C 12%»
-  - id: CCC-C15
-    titulo: Recursos sin lectura no se inventan
-    cuando: no hay nvidia-smi, es la primera lectura de la CPU (no hay con qué comparar) o el sistema no expone un contador
-    entonces: ese recurso no aparece (o aparece con «—» si existe sin permiso), sin ceros inventados ni errores
-  - id: CCC-C16
-    titulo: La GPU no demora la barra
-    cuando: la barra corre cada 2 s
-    entonces: nvidia-smi se consulta como mucho cada 5 s y la línea sale aunque tarde más de 300 ms (con la última lectura o sin G)
-
-
-  - id: CCC-C24
-    titulo: Seguir trabajando en vez de ejecutar
-    dado: un pedido para publicar la tarea «barra» espera en «▶ Para ti»
-    cuando: la persona, en vez de ejecutarlo, pide seguir trabajando y la IA cambia la tarea «barra»
-    entonces: >
-      el pedido sale de «▶ Para ti» al instante (lo que la IA anota en el mismo turno en que lo pide no lo saca); cuando
-      la IA lo pide de nuevo para «barra», reaparece con la misma tecla; otra tarea que cambia no lo toca
-
-  - id: CCC-C25
-    titulo: Atender una etapa
-    dado: la tarea «barra» tiene «Publicación» en ⏳, esperando 5 h de uso medido
-    cuando: la persona pulsa esa ⏳ en la tabla del panel
-    entonces: >
-      la conversación recibe el mensaje de qdd para esa etapa (qué espera y de quién, que intente completarla y, si falta
-      algo, deje un pedido con la tarea «barra» o pregunte); si la etapa ya no espera, no se envía nada y el panel dice
-      por qué
-
-  - id: CCC-C26
-    titulo: Un panel anterior no muestra lo que no conoce
-    dado: un qdd que ofrece «atender» y un panel que no lo dibuja
-    cuando: el panel lee 'qdd consola panel --json' sin '--con atender'
-    entonces: >
-      qdd no entrega las acciones atender y el panel no muestra ningún botón «undefined»; un tipo que el panel no conoce
-      nunca sale en «Acciones»
-
-  - id: CCC-C21
-    titulo: Abrir la carpeta del proyecto
-    dado: consola_qdd=si y el sistema tiene un abridor (xdg-open, open o explorer)
-    cuando: la persona pulsa «o  Abrir carpeta»
-    entonces: la carpeta se abre en el gestor de archivos sin confirmación (no escribe nada); sin abridor se ve la carpeta sin el botón
-  - id: CCC-C22
-    titulo: Descartar una tarea con la ✕
-    cuando: la persona pulsa la ✕ de una tarea y luego «s  Sí»
-    entonces: la tarea pasa a descartada con su motivo, sale del panel y queda en el archivo
-  - id: CCC-C23
-    titulo: El panel en OpenCode
-    dado: OpenCode está en la máquina
-    cuando: se ejecuta 'qdd consola activar' (y luego 'actualizar' o 'qdd doctor --fix')
-    entonces: >
-      el panel queda en la barra lateral de OpenCode con la versión de qdd, registrado una sola vez en tui.json (con
-      respaldo; un tui.json inválido no se toca), lee 'qdd consola panel --json' cada 2 s y no ofrece acciones
 referencias:
   - referencias/settings.json
   - referencias/statusline.sh
