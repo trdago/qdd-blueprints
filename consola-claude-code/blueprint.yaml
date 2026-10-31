@@ -9,7 +9,7 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 7.0.0
+version: 7.1.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
@@ -122,6 +122,7 @@ preguntas:
           - "Acciones del panel: aprobar cada ficha en borrador (teclas 1…9), revisar el estado (c) y auditar (u); lo que escribe se confirma con s / n"
           - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
           - "Un pedido extiende una tarea del estado (la que indica la IA o la tarea en curso): si después de un mensaje de la persona esa tarea sigue cambiando (prefirió seguir trabajando en vez de ejecutarlo), el pedido sale de «▶ Para ti»; cuando la IA lo pide de nuevo para la misma tarea, vuelve con su misma tecla"
+          - "Atender una etapa: cada etapa ⏳ o ❌ de una tarea abierta es un botón de la tabla; al pulsarla, el panel pide a qdd el mensaje de esa etapa (qdd lo vuelve a calcular) y lo envía a la conversación como un mensaje de la persona: la IA intenta completarla y, si falta algo, deja un pedido con esa tarea o pregunta"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
@@ -175,6 +176,7 @@ ficha:
       - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
       - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
       - "El panel solo pasa ids de acción. El único texto libre que se ejecuta es un comando que la IA dejó para la persona, y solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
+      - "El único texto que el panel envía a la conversación es el mensaje que qdd arma para atender una etapa, y solo cuando la persona pulsa esa etapa"
       - "La aprobación de una ficha la sigue haciendo una persona"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
@@ -297,6 +299,15 @@ conformidad:
     entonces: >
       el pedido sale de «▶ Para ti» al instante (lo que la IA anota en el mismo turno en que lo pide no lo saca); cuando
       la IA lo pide de nuevo para «barra», reaparece con la misma tecla; otra tarea que cambia no lo toca
+
+  - id: CCC-C25
+    titulo: Atender una etapa
+    dado: la tarea «barra» tiene «Publicación» en ⏳, esperando 5 h de uso medido
+    cuando: la persona pulsa esa ⏳ en la tabla del panel
+    entonces: >
+      la conversación recibe el mensaje de qdd para esa etapa (qué espera y de quién, que intente completarla y, si falta
+      algo, deje un pedido con la tarea «barra» o pregunte); si la etapa ya no espera, no se envía nada y el panel dice
+      por qué
 
   - id: CCC-C21
     titulo: Abrir la carpeta del proyecto
