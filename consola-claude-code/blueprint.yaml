@@ -9,7 +9,7 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 7.1.0
+version: 8.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
