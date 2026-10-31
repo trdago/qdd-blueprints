@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 1.0.0
+version: 1.1.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
 descripcion: >
