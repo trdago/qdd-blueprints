@@ -1,7 +1,7 @@
 # Blueprint QDD: consola de Claude Code.
 # Configuración común de la consola para toda la organización: cuándo se compacta el contexto, qué modelo y esfuerzo se usan
-# por defecto y qué muestra la barra de estado (proyecto · modelo · contexto · uso de 5 h · uso de la semana · estado por
-# tareas, opcional).
+# por defecto y qué muestra la barra de estado (a la izquierda modelo · modo de la IA; a la derecha, en lista, contexto,
+# uso de 5 h y uso de la semana).
 # Implementación de referencia en referencias/ (settings.json de usuario y statusline.sh).
 #
 #   qdd blueprint add consola-claude-code --ref v1.0.0
@@ -9,14 +9,14 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 6.0.0
+version: 7.0.0
 licencia: Propietaria — uso interno
 descripcion: >
-  Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con proyecto, modelo, % de contexto
-  usado y uso del plan (ventana de 5 h y de 7 días con su hora de renovación). Opcional: el resumen del estado por
-  tareas del proyecto (qdd estado statusline, blueprint estado-por-tareas) y un panel que lo muestra y desde el que
-  se aprueban fichas o se revisa el estado con una confirmación. Opcional: una segunda línea con el uso del equipo
-  (D disco · G GPU · R RAM · C CPU).
+  Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
+  izquierda y, a la derecha, en lista, el % de contexto usado y el uso del plan (ventana de 5 h y de 7 días con su hora
+  de renovación). Opcional: un panel con las tareas del proyecto (blueprint estado-por-tareas) desde el que se aprueban
+  fichas, se revisa el estado y se ejecutan los comandos que la IA deja para la persona, con una confirmación.
+  Opcional: una línea más con el uso del equipo (D disco · G GPU · R RAM · C CPU).
 
 vocabulario:
   - termino: contexto
@@ -26,19 +26,22 @@ vocabulario:
       Resumen automático de la conversación cuando el contexto llega a la ventana configurada
       (modelSettings.<modelo>.autoCompactWindow, en tokens); la tarea en curso sigue después del resumen.
   - termino: barra de estado
-    definicion: La línea inferior de la consola (statusLine); la arma un comando con el JSON que entrega la consola.
+    definicion: >
+      Las líneas inferiores de la consola (statusLine); las arma un comando con el JSON que entrega la consola. A la
+      izquierda, el modelo y el modo de la IA; a la derecha, pegados al borde y uno por línea, el contexto, el uso de 5 h
+      y el de la semana.
+  - termino: modo de la IA
+    definicion: >
+      El modo de permisos en que trabaja la IA (normal, acepta ediciones, plan, auto…). La consola no lo entrega a la
+      barra: lo anota qdd con cada mensaje de la persona (consola_qdd=si); sin eso, la barra no lo muestra.
   - termino: tramo de uso
     definicion: >
       Uso del plan en una ventana de tiempo: «5h» (corto plazo) y «semana» (7 días), en %, con la hora de renovación (↻).
   - termino: esfuerzo
     definicion: Nivel de razonamiento del modelo (effortLevel), global o por modelo.
-  - termino: segmento de estado
-    definicion: >
-      Resumen de una línea del estado por tareas del proyecto («◧ 5 tareas · ⏳4 ❌1»), que entrega
-      qdd estado statusline a partir de .qdd/project/estado.yaml (blueprint estado-por-tareas con destino «archivo»).
   - termino: segmento de recursos
     definicion: >
-      Segunda línea de la barra con el uso del equipo en etiquetas de una letra para ahorrar espacio:
+      Última línea de la barra, pegada a la derecha, con el uso del equipo en etiquetas de una letra para ahorrar espacio:
       «D 70% · G0 7% · G1 — · R 38% · C 12%». D es el disco de la carpeta del proyecto, G0…Gn el % de uso de cada GPU,
       R la RAM usada y C la CPU usada.
   - termino: panel de estado
@@ -89,17 +92,17 @@ preguntas:
     por_defecto: completa
     opciones:
       - valor: completa
-        descripcion: "📁 proyecto · modelo · contexto N% · 5h N% (↻ HH:MM) · semana N% (↻ día HH:MM)"
+        descripcion: "Izquierda «modelo · modo»; a la derecha, uno por línea: «contexto N%», «5h N% ↻ HH:MM» y «semana N% ↻ día HH:MM»"
         depende_de: ["jq en la máquina", "La consola entrega rate_limits (planes con límite de uso)"]
       - valor: minima
-        descripcion: "📁 proyecto · modelo · contexto N%"
+        descripcion: "Izquierda «modelo · modo» y a la derecha «contexto N%», en una línea"
         depende_de: ["jq en la máquina"]
   - id: consola_qdd
     pregunta: ¿La consola usa el panel y la barra de QDD?
     ayuda: >
       Con «si», cada persona ejecuta una vez 'qdd consola activar'. Eso instala en Claude Code el panel de tareas
       (mod qdd-tareas@qdd, junto a la conversación con /tui fullscreen; /tareas lo abre) y deja la barra en Go
-      ('qdd consola statusline'), que muestra lo mismo que la referencia más «◧ N tareas · ⏳n ❌m» y funciona en
+      ('qdd consola statusline'), que muestra lo mismo que la referencia más el modo de la IA y funciona en
       Windows sin bash ni jq. Si OpenCode está en la máquina, deja también el panel en su barra lateral, solo para mirar. Desde el panel se aprueban las fichas en borrador, se revisa el estado y se ejecutan con un
       clic los comandos que la IA deja para la persona (p. ej. publicar una versión), con un segundo paso para lo que
       escribe. 'qdd doctor' revisa que siga instalado y al día. Con «no» se usa referencias/statusline.sh.
@@ -122,7 +125,7 @@ preguntas:
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
     ayuda: >
-      Agrega una segunda línea con etiquetas de una letra: D (disco de la carpeta del proyecto), G0…Gn (% de uso de cada
+      Agrega una última línea, pegada a la derecha, con etiquetas de una letra: D (disco de la carpeta del proyecto), G0…Gn (% de uso de cada
       GPU), R (RAM usada) y C (CPU usada). Sirve para ver a tiempo un disco que se llena o una GPU ocupada. Solo con la
       barra de QDD (consola_qdd=si); la referencia en bash no la trae.
     por_defecto: "no"
@@ -130,7 +133,7 @@ preguntas:
       - valor: "no"
         descripcion: La barra no muestra el uso del equipo.
       - valor: si
-        descripcion: "Segunda línea «D N% · G0 N% · G1 — · R N% · C N%»."
+        descripcion: "Última línea, a la derecha: «D N% · G0 N% · G1 — · R N% · C N%»."
         depende_de: ["consola_qdd=si", "qdd ≥ 2.4.0", "nvidia-smi para las GPU NVIDIA"]
         decisiones:
           - "Cada persona ejecuta una vez 'qdd consola activar --recursos'"
@@ -144,23 +147,27 @@ ficha:
       Cada persona configura la consola distinto: unas sesiones crecen hasta encarecerse o perder el hilo, y nadie ve a
       tiempo cuánto contexto ni cuánto del plan le queda (5 h y semana) ni cuándo se renueva.
     criterio_de_exito: >
-      Toda consola de la organización compacta en la ventana elegida y muestra en la barra proyecto, modelo, % de
-      contexto y, con la barra completa, el uso de 5 h y de la semana con su hora de renovación.
+      Toda consola de la organización compacta en la ventana elegida y muestra en la barra el modelo (y el modo de la IA
+      si se conoce) a la izquierda y, a la derecha, el % de contexto y, con la barra completa, el uso de 5 h y de la
+      semana con su hora de renovación.
   objetivo_tecnologico:
     arquitectura: >
       Configuración de usuario en ~/.claude/settings.json (model, effortLevel, modelSettings.<modelo>.autoCompactWindow,
       statusLine de tipo command) y un script de barra (referencias/statusline.sh) que solo lee el JSON que la consola
-      le pasa por la entrada estándar y lo formatea con jq y date; si qdd está instalado, agrega al final lo que imprime
-      qdd estado statusline. Con consola_qdd=si, 'qdd consola activar' cambia la barra por 'qdd consola statusline'
-      (la misma línea en Go) e instala el panel de estado desde un marketplace local, sin escribir en el proyecto.
+      le pasa por la entrada estándar y lo formatea con jq y date, y alinea la lista a la derecha con el ancho de la
+      terminal (stty size en /dev/tty). Con consola_qdd=si, 'qdd consola activar' cambia la barra por 'qdd consola
+      statusline' (la misma barra en Go, más el modo de la IA que qdd anota en cada mensaje) e instala el panel desde un
+      marketplace local, sin escribir en el proyecto.
     decisiones:
       - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
+      - "La barra no muestra la carpeta del proyecto ni el resumen de tareas: los dos están en el panel (consola_qdd=si)"
+      - "La lista de la derecha termina 2 columnas antes del borde, para que no salte de renglón dentro del margen de la consola"
       - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
       - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
     invariantes:
-      - "La barra no usa la red y solo lee el JSON de la consola; las únicas lecturas extra permitidas son el segmento de estado (solo el archivo local del proyecto, tope de 100 ms) y el segmento de recursos (solo contadores locales del sistema; la GPU se consulta como mucho cada 5 s con tope de 300 ms); lo que falla no se muestra"
+      - "La barra no usa la red y solo lee el JSON de la consola; las únicas lecturas extra permitidas son el ancho de la terminal, el modo de la IA (solo el archivo local que qdd anota) y el segmento de recursos (solo contadores locales del sistema; la GPU se consulta como mucho cada 5 s con tope de 300 ms); lo que falla no se muestra"
       - "Un recurso que existe pero no se puede medir sin permisos (p. ej. el % de una GPU integrada) se muestra con «—»; uno que el sistema no expone se omite; nunca se muestra un valor inventado"
       - "Una barra propia (statusLine) nunca se reemplaza sin que la persona lo pida"
       - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
@@ -178,36 +185,41 @@ ficha:
 conformidad:
   - id: CCC-C01
     titulo: Barra completa
-    dado: el JSON trae proyecto, modelo, contexto 37,6 %, 5h 12,2 % y semana 40 % con sus renovaciones
+    dado: el JSON trae proyecto, modelo, contexto 37,6 %, 5h 12,2 % y semana 40 % con sus renovaciones, la IA está en modo auto y la terminal tiene 70 columnas
     cuando: corre el script de la barra
-    entonces: muestra «📁 <carpeta> · <modelo> · contexto 38% · 5h 12% (↻ HH:MM) · semana 40% (↻ <día> HH:MM)»
+    entonces: >
+      muestra «<modelo> · auto» a la izquierda y «contexto 38%» a la derecha en la primera línea; debajo, pegados a la
+      derecha, «5h 12% ↻ HH:MM» y «semana 40% ↻ <día> HH:MM»; cada línea termina 2 columnas antes del borde
   - id: CCC-C02
     titulo: Campos ausentes se omiten
-    dado: el JSON trae solo proyecto y modelo
+    dado: el JSON trae solo proyecto y modelo, y el modo no se conoce
     cuando: corre el script de la barra
-    entonces: muestra «📁 <carpeta> · <modelo>», sin contexto ni tramos y sin ceros inventados
+    entonces: muestra solo «<modelo>», sin modo, contexto ni tramos y sin ceros inventados
   - id: CCC-C03
     titulo: Renovación en epoch o ISO
     cuando: resets_at llega como segundos epoch o como fecha ISO 8601
     entonces: la hora de renovación se muestra igual en ambos casos
   - id: CCC-C04
-    titulo: Solo el nombre de la carpeta
-    cuando: el proyecto está en una ruta larga
-    entonces: la barra muestra solo el último segmento
+    titulo: Sin carpeta ni tareas en la barra
+    dado: el proyecto tiene .qdd/project/estado.yaml con tareas abiertas
+    cuando: corre el script de la barra
+    entonces: la barra no muestra la carpeta ni «◧ N tareas»; el panel los muestra
   - id: CCC-C05
     titulo: Compactación en la ventana elegida
     dado: autoCompactWindow fijado en el modelo por defecto
     cuando: el contexto llega a esa ventana
     entonces: la conversación se compacta y la tarea en curso continúa
   - id: CCC-C06
-    titulo: Segmento de estado
-    dado: el proyecto tiene .qdd/project/estado.yaml con 5 tareas abiertas, 4 ⏳ y 1 ❌
-    cuando: corre el script de la barra
-    entonces: la barra termina en «· ◧ 5 tareas · ⏳4 ❌1»
+    titulo: El modo de la IA
+    dado: consola_qdd=si y el último mensaje de la persona fue en modo plan
+    cuando: corre la barra de QDD
+    entonces: la izquierda dice «<modelo> · plan»; sin un modo anotado en las últimas 12 h, solo «<modelo>»
   - id: CCC-C07
-    titulo: El segmento de estado nunca ensucia la barra
-    cuando: el proyecto no tiene estado.yaml, qdd no está instalado, es una versión sin qdd estado o tarda más de 100 ms
-    entonces: la barra se muestra igual que sin el segmento, sin errores ni texto de ayuda
+    titulo: Sin ancho o angosta no se desordena
+    cuando: no se puede saber el ancho de la terminal, o el contexto no cabe junto al modelo
+    entonces: >
+      sin ancho, la primera línea es «<modelo> · <modo> · contexto N%» y el resto va debajo sin relleno; angosta, el
+      contexto baja a la lista de la derecha
 
   - id: CCC-C08
     titulo: Un solo interruptor, repetible
@@ -265,7 +277,7 @@ conformidad:
     titulo: Segmento de recursos
     dado: recursos=si, disco del proyecto al 70 %, una GPU NVIDIA al 7 % y una integrada sin lectura, RAM al 38 % y CPU al 12 %
     cuando: corre la barra de QDD
-    entonces: la segunda línea es «D 70% · G0 7% · G1 — · R 38% · C 12%»
+    entonces: la última línea, pegada a la derecha, es «D 70% · G0 7% · G1 — · R 38% · C 12%»
   - id: CCC-C15
     titulo: Recursos sin lectura no se inventan
     cuando: no hay nvidia-smi, es la primera lectura de la CPU (no hay con qué comparar) o el sistema no expone un contador

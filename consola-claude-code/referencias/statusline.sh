@@ -1,31 +1,44 @@
 #!/usr/bin/env bash
-# Barra de estado de Claude Code: proyecto · modelo · % de contexto usado · uso del plan (5h y semana) · estado por frente
+# Barra de estado de Claude Code (blueprint consola-claude-code): a la izquierda el modelo; a la derecha, uno por línea y
+# pegados al borde, el % de contexto usado y el uso del plan (5h y semana). Un campo que falta se omite.
+# El modo de la IA no llega en el JSON de la consola: solo lo muestra la barra de QDD (consola_qdd=si).
 input=$(cat)
-proj=$(jq -r '.workspace.project_dir // .workspace.current_dir // .cwd // empty' <<<"$input")
 model=$(jq -r '.model.display_name // empty' <<<"$input")
 ctx=$(jq -r '.context_window.used_percentage // empty' <<<"$input")
-line="📁 ${proj##*/}"
-[ -n "$model" ] && line+=" · $model"
-[ -n "$ctx" ] && line+=" · contexto $(printf '%.0f' "$ctx")%"
-# Uso del plan: ventana de 5 h (corto plazo) y de 7 días. Se omite el tramo si falta el campo.
-tramo() { # $1 rótulo, $2 porcentaje, $3 epoch de renovación, $4 formato de fecha
+# Ancho de la terminal de la sesión (la barra corre sin terminal en su salida); 0 si no se sabe.
+cols=$( (stty size </dev/tty) 2>/dev/null | cut -d' ' -f2)
+[[ "$cols" =~ ^[0-9]+$ ]] || cols=${COLUMNS:-0}
+util=$((cols - 2)) # termina 2 columnas antes del borde
+tramo() { # $1 rótulo, $2 porcentaje, $3 epoch o ISO de renovación, $4 formato de fecha
 	[ -n "$2" ] || return 0
-	local t
+	local t dias=(x lun mar mié jue vie sáb dom) f when="$3"
 	t="$1 $(printf '%.0f' "$2")%"
-	local dias=(x lun mar mié jue vie sáb dom) f when="$3"
-	[[ "$when" =~ ^[0-9]+$ ]] && when="@$when" # epoch en segundos o fecha ISO
+	[[ "$when" =~ ^[0-9]+$ ]] && when="@$when"
 	f="${4//%a/${dias[$(date -d "$when" +%u 2>/dev/null || echo 0)]}}"
-	[ -n "$3" ] && date -d "$when" >/dev/null 2>&1 && t+=" (↻ $(date -d "$when" "+$f"))"
-	printf ' · %s' "$t"
+	[ -n "$3" ] && date -d "$when" >/dev/null 2>&1 && t+=" ↻ $(date -d "$when" "+$f")"
+	printf '%s' "$t"
+}
+derecha() { # rellena para que la línea termine a 2 columnas del borde
+	local n=${#1}
+	((cols > 0 && n < util)) && printf '%*s' $((util - n)) ''
+	printf '%s' "$1"
 }
 read -r p5 r5 p7 r7 < <(jq -r '[.rate_limits.five_hour.used_percentage, .rate_limits.five_hour.resets_at, .rate_limits.seven_day.used_percentage, .rate_limits.seven_day.resets_at] | map(. // "") | map(if . == "" then "-" else tostring end) | join(" ")' <<<"$input")
 for v in p5 r5 p7 r7; do [ "${!v}" = "-" ] && printf -v "$v" ''; done
-line+="$(tramo "5h" "$p5" "$r5" "%H:%M")"
-line+="$(tramo "semana" "$p7" "$r7" "%a %H:%M")"
-# Segmento de estado (si qdd está instalado): resumen local del estado por frente del proyecto,
-# con tope de 100 ms. Sin archivo, sin qdd o con un qdd antiguo no imprime nada.
-if [ -n "$proj" ] && command -v qdd >/dev/null 2>&1; then
-	est=$(timeout 0.1 qdd estado statusline --dir "$proj" 2>/dev/null)
-	[ -n "$est" ] && line+=" · $est"
+lista=()
+[ -n "$ctx" ] && lista+=("contexto $(printf '%.0f' "$ctx")%")
+t=$(tramo "5h" "$p5" "$r5" "%H:%M") && [ -n "$t" ] && lista+=("$t")
+t=$(tramo "semana" "$p7" "$r7" "%a %H:%M") && [ -n "$t" ] && lista+=("$t")
+# Primera línea: el modelo y, si cabe a su derecha, el contexto; sin ancho conocido, juntos con «·».
+primera=""
+if [ ${#lista[@]} -gt 0 ] && [ -n "$model" ] && ((cols <= 0)); then
+	primera="$model · ${lista[0]}" && lista=("${lista[@]:1}")
 fi
-printf '%s' "$line"
+if [ -z "$primera" ] && [ ${#lista[@]} -gt 0 ] && [ -n "$model" ] && ((${#model} + 2 + ${#lista[0]} <= util)); then
+	primera="$model$(printf '%*s' $((util - ${#model} - ${#lista[0]})) '')${lista[0]}" && lista=("${lista[@]:1}")
+fi
+[ -z "$primera" ] && primera="$model"
+lineas=()
+[ -n "$primera" ] && lineas+=("$primera")
+for l in "${lista[@]}"; do lineas+=("$(derecha "$l")"); done
+(IFS=$'\n'; printf '%s' "${lineas[*]}")
