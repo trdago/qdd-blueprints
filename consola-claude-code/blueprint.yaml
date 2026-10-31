@@ -123,6 +123,7 @@ preguntas:
           - "Comandos para la persona (qdd ≥ 2.6.0): cuando la IA no puede o no debe ejecutar un comando, lo deja en el panel con qdd_consola_pedir (o 'qdd consola pedir'); el panel lo muestra en «▶ Para ti» (teclas a, b, d…) y lo ejecuta con un clic y «s  Sí», o lo descarta con «x»"
           - "Un pedido extiende una tarea del estado (la que indica la IA o la tarea en curso): si después de un mensaje de la persona esa tarea sigue cambiando (prefirió seguir trabajando en vez de ejecutarlo), el pedido sale de «▶ Para ti»; cuando la IA lo pide de nuevo para la misma tarea, vuelve con su misma tecla"
           - "Atender una etapa: cada etapa ⏳ o ❌ de una tarea abierta es un botón de la tabla; al pulsarla, el panel pide a qdd el mensaje de esa etapa (qdd lo vuelve a calcular) y lo envía a la conversación como un mensaje de la persona: la IA intenta completarla y, si falta algo, deja un pedido con esa tarea o pregunta"
+          - "Textos estilo chat: lo que leen la persona y la IA es un resumen corto con símbolos; el mensaje para atender una etapa cabe en 280 caracteres (se acortan el nombre y lo citado, nunca las instrucciones) y el motivo de un pedido en 60 (qdd rechaza uno más largo)"
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
   - id: recursos
     pregunta: ¿La barra muestra el uso del equipo (D disco · G GPU · R RAM · C CPU)?
@@ -177,6 +178,7 @@ ficha:
       - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
       - "El panel solo pasa ids de acción. El único texto libre que se ejecuta es un comando que la IA dejó para la persona, y solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
       - "El único texto que el panel envía a la conversación es el mensaje que qdd arma para atender una etapa, y solo cuando la persona pulsa esa etapa"
+      - "Un tipo de acción nuevo y opcional (p. ej. atender) qdd lo entrega solo al panel que lo pide ('qdd consola panel --con <tipo>'); el panel muestra solo los tipos que sabe dibujar, nunca un botón sin tecla o sin etiqueta"
       - "La aprobación de una ficha la sigue haciendo una persona"
       - "Un campo que falta se omite; nunca se muestra un valor inventado (p. ej. 0 %)"
       - "Del proyecto se muestra solo el nombre de la carpeta, nunca la ruta completa"
@@ -308,6 +310,14 @@ conformidad:
       la conversación recibe el mensaje de qdd para esa etapa (qué espera y de quién, que intente completarla y, si falta
       algo, deje un pedido con la tarea «barra» o pregunte); si la etapa ya no espera, no se envía nada y el panel dice
       por qué
+
+  - id: CCC-C26
+    titulo: Un panel anterior no muestra lo que no conoce
+    dado: un qdd que ofrece «atender» y un panel que no lo dibuja
+    cuando: el panel lee 'qdd consola panel --json' sin '--con atender'
+    entonces: >
+      qdd no entrega las acciones atender y el panel no muestra ningún botón «undefined»; un tipo que el panel no conoce
+      nunca sale en «Acciones»
 
   - id: CCC-C21
     titulo: Abrir la carpeta del proyecto
