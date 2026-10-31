@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 1.0.0
+version: 1.1.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
 descripcion: >
@@ -57,9 +57,21 @@ preguntas:
       - valor: software
         descripcion: Código · Pruebas · Producción · Validación real (separada de Producción).
         invariantes: ["La columna Validación real nunca se marca ✅ solo porque Producción está ✅"]
+        conformidad:
+          - id: EPT-S01
+            titulo: Producción no es validación real
+            dado: una tarea con Producción ✅ y sin un uso real observado
+            cuando: se reporta
+            entonces: Validación real queda ⏳ (qué uso falta ver y de quién) o ❌, nunca ✅
       - valor: modelos
         descripcion: Datos · Entreno · Puerta · Producción (para modelos que pasan una puerta de calidad antes de producción).
         invariantes: ["Producción no se marca ✅ sin la Puerta en ✅ con su evidencia"]
+        conformidad:
+          - id: EPT-M01
+            titulo: Sin puerta no hay producción
+            dado: un modelo con la Puerta en ⏳ o ❌, o en ✅ sin evidencia
+            cuando: se reporta Producción
+            entonces: Producción no pasa a ✅ y la celda dice que espera la Puerta
       - valor: sin-codigo
         descripcion: Definición · Ejecución · Verificación · Cierre (proyectos sin código).
       - valor: propias
