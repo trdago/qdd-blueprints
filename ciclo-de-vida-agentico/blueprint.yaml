@@ -1,0 +1,631 @@
+# Blueprint QDD: ciclo de vida agéntico.
+# El mapa de las 14 fases para construir un sistema agéntico (uno o varios agentes) con modelos entrenados o ajustados,
+# y un tutor (una IA o una persona) que acompaña fase a fase: explica con el vocabulario de la industria, mide con
+# números reales, marca el avance con evidencia y registra cada decisión en una bitácora. Se suma al inicio, a la mitad
+# o al final de un proyecto: si entra a uno que ya existe, primero diagnostica en qué nivel está cada fase.
+#
+#   qdd blueprint add ciclo-de-vida-agentico
+#   qdd blueprint apply ciclo-de-vida-agentico
+#   qdd modules approve ciclo-de-vida-agentico
+id: ciclo-de-vida-agentico
+nombre: Ciclo de vida agéntico
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+alcance:
+  incluye:
+    - "Las 14 fases con su concepto, su artefacto, su medición y su puerta"
+    - "El ciclo del tutor en cada fase y la bitácora de decisiones"
+    - "Las reglas para marcar el avance con evidencia y reabrir una fase"
+  excluye:
+    - "Entrenar, ajustar o evaluar modelos: eso lo hacen los scripts y notebooks del proyecto"
+    - "Elegir el proveedor de modelos, el framework de agentes o la infraestructura"
+    - "Dibujar el avance en una consola (eso es de estado-por-tareas y de cada panel)"
+descripcion: >
+  El mapa de las 14 fases estándar de un sistema agéntico con modelos entrenados o ajustados (del problema y su KPI a
+  la producción y la mejora continua), con un tutor que acompaña a la persona fase a fase: explica cada concepto, lo
+  mide con números del propio proyecto, marca el avance solo con evidencia y una persona que aprueba, y deja cada
+  decisión en una bitácora. Entra al inicio, a la mitad o al final: en un proyecto que ya existe, primero diagnostica
+  la madurez de cada fase (0 a 4, o «?» sin evidencia), dice qué está bien, qué falta y qué mejorar primero. Nació
+  del juego didáctico «Academia de Robots Archivadores», cuyas 14 misiones son estas fases.
+
+vocabulario:
+  - termino: tutor
+    definicion: >
+      El rol (de una IA o de una persona) que acompaña a quien construye el sistema: explica, comprueba, mide, marca y
+      registra. Nunca inventa una métrica ni aprueba una puerta.
+  - termino: fase
+    definicion: Una de las 14 etapas del ciclo de vida, con su concepto, su artefacto, su medición y su puerta.
+  - termino: ciclo del tutor
+    definicion: "Lo que pasa en cada fase, en orden: explicar → hacer → medir → marcar → registrar."
+  - termino: artefacto
+    definicion: El archivo que deja una fase (p. ej. problema.md o golden.manifest.yaml); sin él la fase no está definida.
+  - termino: puerta
+    definicion: La condición medible que una fase debe cumplir para pasar a ✅; la aprueba una persona.
+  - termino: bitácora
+    definicion: >
+      El registro de cada explicación, decisión, medición, puerta, reapertura y diagnóstico. Solo se agrega: una
+      corrección es una entrada nueva.
+  - termino: reapertura
+    definicion: Volver a abrir una fase ya cerrada porque algo posterior mostró que su artefacto o su puerta fallan.
+  - termino: punto de entrada
+    definicion: El momento en que se suma el tutor al proyecto (inicio, en curso o cierre).
+  - termino: diagnóstico
+    definicion: >
+      La lectura de un proyecto que ya existe, de solo lectura, que ubica cada fase en un nivel de madurez con su
+      evidencia, sus brechas y qué mejorar primero.
+  - termino: nivel de madurez
+    definicion: >
+      Qué tan sólida está una fase: 0 ausente (confirmado), 1 informal, 2 definida (hay artefacto), 3 medida (su
+      puerta se cumple en una corrida), 4 controlada (se mide sola en cada cambio y alerta); «?» si no se pudo
+      comprobar.
+  - termino: brecha
+    definicion: Lo que le falta a una fase para subir de nivel, con su riesgo, su impacto y su esfuerzo.
+  - termino: evidencia retroactiva
+    definicion: Un artefacto o una métrica que ya existía en el proyecto cuando entró el tutor; se cita y se marca encontrada.
+  - termino: comprobación de comprensión
+    definicion: Una o dos preguntas por fase para saber si la persona entendió el concepto, no para calificar el sistema.
+  - termino: taxonomía
+    definicion: >
+      Las clases en que se ordena lo que el sistema procesa, MECE (sin solaparse y sin dejar huecos), cada una con su
+      definición, un ejemplo y un contraejemplo.
+  - termino: esquema de metadata
+    definicion: Los campos, con su tipo y si son obligatorios, que acompañan a cada elemento de salida.
+  - termino: corpus
+    definicion: El conjunto de ejemplos reales con que se construye y se mide el sistema.
+  - termino: split
+    definicion: >
+      La partición del corpus en train, validación y test. Se hace por grupo (p. ej. por licitación) para que un mismo
+      grupo nunca quede en dos partes.
+  - termino: fuga de datos
+    definicion: >
+      Cuando un ejemplo de test o del golden llega al entrenamiento, al ajuste o a un prompt; la medición deja de
+      valer.
+  - termino: PII
+    definicion: Datos personales que identifican a alguien (nombres, RUT, correos, teléfonos, direcciones).
+  - termino: anotación
+    definicion: El etiquetado de ejemplos por personas expertas siguiendo una guía versionada.
+  - termino: kappa de Cohen
+    definicion: >
+      El acuerdo entre dos anotadores descontando el azar: κ = (pₒ − pₑ) / (1 − pₑ), con pₒ el acuerdo observado y pₑ
+      el esperado por azar. 1 es acuerdo total y 0, el del azar.
+  - termino: golden set
+    definicion: >
+      Ejemplos perfectos de todas las clases, con casos difíciles, revisados por dos personas y congelados con un hash.
+      Sirve para medir; nunca para entrenar.
+  - termino: prueba de regresión
+    definicion: Volver a medir sobre el golden después de cada cambio para ver que nada empeoró.
+  - termino: baseline
+    definicion: La solución más simple que funciona (reglas o zero-shot); todo lo demás tiene que superarla.
+  - termino: método
+    definicion: La forma de resolver la tarea con modelos (zero-shot, few-shot, fine-tuning, RAG o ruteo).
+  - termino: checkpoint
+    definicion: Una versión guardada y reproducible de un modelo entrenado o ajustado.
+  - termino: época
+    definicion: Una pasada completa del entrenamiento por todos los ejemplos de train.
+  - termino: loss
+    definicion: El error que el entrenamiento minimiza; se sigue en train y en validación.
+  - termino: overfitting
+    definicion: "Cuando el loss de train sigue bajando y el de validación sube: el modelo memoriza en vez de aprender."
+  - termino: early stopping
+    definicion: Cortar el entrenamiento en la época con el mejor loss de validación, antes del overfitting.
+  - termino: matriz de confusión
+    definicion: La tabla de clase real contra clase predicha; muestra qué clases se confunden entre sí.
+  - termino: precisión
+    definicion: De lo que el sistema dijo que era de una clase, cuánto lo era de verdad.
+  - termino: recall
+    definicion: De lo que de verdad era de una clase, cuánto encontró el sistema.
+  - termino: F1 y macro-F1
+    definicion: >
+      F1 es la media armónica de precisión y recall de una clase; macro-F1 es el promedio de los F1 de todas las
+      clases, sin que pesen más las grandes.
+  - termino: calibración y ECE
+    definicion: >
+      Un modelo está calibrado si su confianza coincide con cuánto acierta: de lo que dice con mucha confianza, acierta
+      casi todo. El ECE (error de calibración esperado) mide cuánto se aleja de eso.
+  - termino: umbral
+    definicion: La confianza mínima para que el sistema decida solo.
+  - termino: human-in-the-loop
+    definicion: Que una persona revise lo que el sistema no decide solo (lo que queda bajo el umbral).
+  - termino: agente
+    definicion: Un componente que recibe un estado, usa herramientas o modelos y entrega un estado nuevo con un rol definido.
+  - termino: orquestador
+    definicion: Lo que decide qué agente actúa en cada paso y con qué estado.
+  - termino: contrato de estado
+    definicion: El esquema que el estado debe cumplir al entrar y al salir de cada agente.
+  - termino: grafo de dependencias
+    definicion: Las relaciones entre los elementos que procesa el sistema (p. ej. qué documento aclara a cuál).
+  - termino: trazabilidad
+    definicion: >
+      Poder decir, de cada salida, qué agentes la produjeron, con qué versiones, con qué confianza, contra qué umbral
+      y si la revisó una persona.
+  - termino: drift
+    definicion: Cuando los datos o el comportamiento en producción se alejan de lo que se midió; las métricas dejan de valer.
+  - termino: ciclo de mejora
+    definicion: Medir en producción, encontrar errores, reabrir la fase que corresponde y volver a pasar sus puertas.
+
+parametros:
+  - id: kappa_minimo
+    pregunta: ¿Qué kappa de Cohen mínimo exige la puerta de anotación (F04)?
+    ayuda: >
+      0.8 es acuerdo casi perfecto; 0.7, sustancial. Más bajo, si el criterio es difícil incluso para expertos, a
+      cambio de un golden menos firme.
+    tipo: numero
+    por_defecto: "0.8"
+    ejemplos: ["0.8", "0.7"]
+  - id: tolerancia_drift
+    pregunta: ¿Cuánto puede subir el error en producción sobre el medido en F10 antes de declarar drift?
+    ayuda: >
+      Se suma al error del umbral elegido en F10 (0.02 son 2 puntos: con un error medido de 0.05, hay drift sobre
+      0.07). Más bajo avisa antes, a cambio de más falsas alarmas.
+    tipo: numero
+    por_defecto: "0.02"
+    ejemplos: ["0.02", "0.05"]
+constantes:
+  - id: minimo_comunes
+    valor: 50 ejemplos
+    por_que: con menos ejemplos anotados por ambos, el κ varía tanto de una muestra a otra que no separa 0,6 de 0,8
+  - id: revisores_golden
+    valor: 2 personas
+    por_que: una sola persona no ve sus propios errores; con dos se miden y se resuelven los desacuerdos
+  - id: semaforo
+    valor: "🟢 nivel 3–4 · 🟡 nivel 2 · 🔴 nivel 0–1 · ⚪ sin evidencia («?»)"
+    por_que: fijo para que dos diagnósticos del mismo proyecto den el mismo color y el progreso se compare
+  - id: brechas_resumen
+    valor: "3"
+    por_que: el resumen cabe en una página; más brechas a la vez no se priorizan
+
+preguntas:
+  - id: entrada
+    pregunta: ¿En qué momento se suma el tutor?
+    ayuda: Al inicio acompaña desde F01. En un proyecto que ya existe, primero diagnostica dónde está.
+    por_defecto: inicio
+    opciones:
+      - valor: inicio
+        descripcion: Acompaña desde F01; las 14 fases empiezan en ⏳ y en nivel 0, porque se parte de cero.
+      - valor: en-curso
+        descripcion: >
+          Diagnostica primero, marca la evidencia retroactiva y propone desde qué fase seguir: la primera brecha que
+          bloquea a las demás.
+        decisiones: &diagnostico_decisiones
+          - "Escribe .qdd/project/tutor/diagnostico.md antes de correr el ciclo del tutor en cualquier fase"
+          - "Las fuentes, en orden: el repositorio (código, prompts, notebooks, agentes, datos y splits), las corridas guardadas y una entrevista corta por fase"
+          - "Busca en cada fase sus señales y le da el nivel según la definición de nivel de madurez"
+          - "Por fase registra el nivel, la evidencia citada (ruta y hash o id de corrida), las brechas con su riesgo y una recomendación"
+          - "El resumen abre con el semáforo ({{semaforo}}), las fortalezas, las {{brechas_resumen}} brechas de mayor riesgo y el plan"
+          - "Fortalezas: todas las fases en nivel 3 o 4"
+          - "Riesgo de una brecha: cuántas fases dependen de su fase, directa o indirectamente; esfuerzo: cuántos niveles le faltan para llegar a 3"
+          - "El plan lleva las fases bajo nivel 3, de mayor a menor riesgo ÷ esfuerzo (si empatan, la que va antes), sin poner una antes de otra del plan de la que depende"
+          - "Las fases «?» van aparte, como «por averiguar», y las «—» no entran al plan"
+          - "Se repite en cada hito y muestra qué fase subió o bajó de nivel desde el diagnóstico anterior, que queda guardado"
+          - "Lo dicho en la entrevista cuenta como nivel 1 hasta que haya un artefacto; el 0 pide que la persona confirme que no existe"
+          - "Tras el diagnóstico, una fase en nivel 2 o más deja su Artefacto en ✅ como encontrado; en nivel 3 o más, también su Medición; la Puerta y el Concepto quedan ⏳"
+        invariantes: &diagnostico_invariantes
+          - "El nivel sale de la evidencia encontrada, nunca de lo que debería existir"
+          - "La evidencia retroactiva se cita y se marca como encontrada, no como hecha por el tutor"
+          - "Una métrica que no se puede reproducir vale como mucho nivel 2"
+          - "Si una fase no se pudo comprobar es «?», nunca 0"
+          - "El diagnóstico nunca marca ✅: eso pide nivel 3 o más y la aprobación de una persona"
+          - "Cada brecha nombra su riesgo"
+          - "El diagnóstico es de solo lectura sobre el proyecto: solo escribe dentro de .qdd/project/"
+        conformidad: &diagnostico_conformidad
+          - id: CVA-D01
+            titulo: Diagnóstico al entrar a un proyecto que ya existe
+            dado: un repositorio con un grafo de LangGraph, un prompt few-shot y un notebook con métricas
+            cuando: el tutor se suma
+            entonces: escribe diagnostico.md con el nivel, la evidencia citada y las brechas de cada una de las 14 fases antes de correr el ciclo en cualquiera
+          - id: CVA-D02
+            titulo: Sin comprobar es «?» y no 0
+            dado: una fase sin artefacto ni corrida, de la que la entrevista no sabe decir si existe
+            cuando: se diagnostica
+            entonces: queda «?» (⚪), va en «por averiguar» y no cuenta como nivel 0 en el resumen ni en el plan
+          - id: CVA-D03
+            titulo: Una métrica sin reproducir queda en nivel 2
+            dado: un notebook con una métrica 0,91 sin id de corrida, datos versionados ni semilla
+            cuando: se diagnostica F09
+            entonces: F09 queda en nivel 2 y la brecha dice que la métrica no se puede reproducir
+          - id: CVA-D04
+            titulo: Fortalezas, brechas y plan
+            cuando: se escribe el resumen del diagnóstico
+            entonces: >
+              trae el semáforo de las 14 fases, todas las fases en nivel 3 o 4 como fortalezas, las {{brechas_resumen}}
+              brechas de mayor riesgo y el plan por riesgo ÷ esfuerzo, sin una fase antes de otra de la que depende
+          - id: CVA-D05
+            titulo: El diagnóstico no marca ✅
+            dado: una fase con su artefacto y su métrica encontrados
+            cuando: se diagnostica
+            entonces: queda con su nivel y su puerta en ⏳ esperando la aprobación de una persona, nunca en ✅
+          - id: CVA-D06
+            titulo: Progreso entre diagnósticos
+            dado: un diagnóstico anterior con F05 en nivel 0
+            cuando: se diagnostica de nuevo con el golden congelado y medido
+            entonces: F05 sale en nivel 3 con el nivel anterior al lado y el resumen lo muestra como avance
+          - id: CVA-D07
+            titulo: Solo lectura
+            cuando: el tutor diagnostica
+            entonces: no cambia ningún archivo del proyecto fuera de .qdd/project/
+      - valor: cierre
+        descripcion: >
+          El diagnóstico como auditoría de un proyecto terminado o en producción, con énfasis en F05, F10 y F14;
+          acompaña solo si se lo piden.
+        decisiones: *diagnostico_decisiones
+        invariantes: *diagnostico_invariantes
+        conformidad: *diagnostico_conformidad
+  - id: nivel
+    pregunta: ¿Cómo explica el tutor?
+    ayuda: Cambia el lenguaje, nunca lo que se exige.
+    por_defecto: aprendiz
+    opciones:
+      - valor: inicial
+        descripcion: Como a un niño de 10 años, con una analogía por concepto y el término de la industria al final.
+      - valor: aprendiz
+        descripcion: El concepto, para qué sirve y cómo se mide, un párrafo cada uno.
+      - valor: experto
+        descripcion: Solo la puerta, la métrica y la decisión.
+  - id: modo
+    pregunta: ¿Cuánto hace solo el tutor?
+    por_defecto: copiloto
+    opciones:
+      - valor: tutor
+        descripcion: Explica, comprueba y deja que la persona haga el artefacto.
+        invariantes: ["El tutor no escribe un artefacto antes de que la persona lo intente o le pida ayuda"]
+        conformidad:
+          - id: CVA-M01
+            titulo: Primero lo intenta la persona
+            dado: el modo tutor en F02 y la persona sin taxonomía escrita
+            cuando: el tutor explica la fase
+            entonces: deja la plantilla vacía y sus preguntas; escribe clases solo si la persona lo intentó o pidió ayuda
+      - valor: copiloto
+        descripcion: El tutor propone el artefacto y la persona lo corrige.
+      - valor: auditor
+        descripcion: El tutor solo mide, marca y registra; la persona hace todo lo demás.
+  - id: tipo_tarea
+    pregunta: ¿Qué tipo de tarea resuelve el sistema?
+    ayuda: Decide las métricas de F06, F09 y F10.
+    por_defecto: clasificacion
+    opciones:
+      - valor: clasificacion
+        descripcion: Asignar una clase a cada elemento.
+        decisiones: ["Métricas: matriz de confusión, precisión, recall y F1 por clase, macro-F1, accuracy y ECE"]
+      - valor: extraccion
+        descripcion: Sacar campos o entidades de cada elemento.
+        decisiones: ["Métricas: exactitud por campo, F1 de entidades exacto y parcial, y porcentaje de fichas completas"]
+      - valor: generacion
+        descripcion: Producir texto (resúmenes, respuestas, borradores).
+        decisiones:
+          - "Métricas: una rúbrica con puntaje por criterio, revisada por personas"
+          - "Si un LLM juez puntúa, primero se mide su κ contra las personas sobre los mismos ejemplos y debe llegar a {{kappa_minimo}}"
+      - valor: accion
+        descripcion: Ejecutar tareas con herramientas (agentes que actúan).
+        decisiones: ["Métricas: tasa de éxito de la tarea completa, pasos por tarea, errores de herramienta y costo por tarea"]
+      - valor: propias
+        descripcion: Métricas que define el proyecto.
+        depende_de: ["Las métricas de F06, F09 y F10, con cómo se calculan, escritas en problema.md"]
+  - id: registro
+    pregunta: ¿Dónde se marca el avance de las fases?
+    por_defecto: estado
+    opciones:
+      - valor: estado
+        descripcion: >
+          En la tabla de estado-por-tareas: cada fase es una tarea con las etapas Concepto · Artefacto · Medición ·
+          Puerta.
+        depende_de: ["El blueprint estado-por-tareas aplicado con destino archivo, etapas propias (Puerta cumple el rol de Validación real) y Puerta entre las que requieren aprobación"]
+        decisiones: ["Una fase que no aplica va en «—» en todas sus etapas, con su motivo"]
+        invariantes: ["La etapa Puerta solo pasa a ✅ con la aprobación de una persona escrita en la celda"]
+        conformidad:
+          - id: CVA-R01
+            titulo: Las fases en la tabla de estado
+            cuando: se aplica el blueprint
+            entonces: >
+              cada fase es una tarea de .qdd/project/estado.yaml con sus 4 etapas, igual que en plan.yaml; al inicio
+              todas en ⏳, y tras un diagnóstico según su nivel, con la Puerta nunca en ✅
+      - valor: archivo
+        descripcion: Solo en .qdd/project/tutor/plan.yaml, sin la tabla de estado.
+  - id: comprension
+    pregunta: ¿Cómo comprueba el tutor que se entendió cada fase?
+    por_defecto: preguntas
+    opciones:
+      - valor: "no"
+        descripcion: No comprueba; solo explica.
+      - valor: preguntas
+        descripcion: Una o dos preguntas por fase, con la respuesta guardada en la bitácora como comprensión.
+        decisiones: ["Cada comprobación de comprensión queda en la bitácora con la pregunta, la respuesta y si se entendió"]
+      - valor: juego
+        descripcion: Las preguntas de cada fase con XP y logros, como en la Academia de Robots Archivadores.
+        invariantes: ["El puntaje mide lo aprendido, nunca la calidad del sistema: no cambia niveles, estados ni puertas"]
+        conformidad:
+          - id: CVA-J01
+            titulo: El puntaje no mide el sistema
+            dado: una persona con todos los logros de F09
+            cuando: la evaluación de F09 no supera al baseline
+            entonces: F09 queda ❌ y el puntaje no cambia ese estado
+  - id: datos_personales
+    pregunta: ¿El corpus tiene datos personales?
+    por_defecto: "si"
+    opciones:
+      - valor: "si"
+        descripcion: Se anonimizan en F03, antes de anotar.
+        decisiones: ["La limpieza de PII se aprueba aparte dentro de F03, con su propia corrida, antes que el resto de su puerta"]
+        invariantes: ["Ningún ejemplo con PII llega a la anotación, a un prompt de un tercero ni a la bitácora"]
+        conformidad:
+          - id: CVA-P01
+            titulo: Sin limpieza de PII no se anota
+            dado: F03 con la limpieza de PII sin ✅
+            cuando: se pide abrir F04
+            entonces: el tutor no la abre y dice que falta la limpieza de PII de F03
+      - valor: "no"
+        descripcion: El corpus no tiene datos personales.
+        decisiones: ["En problema.md queda escrito por qué el corpus no tiene datos personales"]
+
+pasos:
+  - id: plan
+    accion: Escribir en .qdd/project/tutor/plan.yaml las 14 fases, cada una con su artefacto, sus señales, su puerta y sus dependencias
+    produce: un plan con las 14 fases visibles, cada una con su estado y su nivel
+    verifica: [CVA-C01]
+  - id: diagnostico
+    si: {entrada: [en-curso, cierre]}
+    accion: Diagnosticar cada fase por sus señales en el repositorio, las corridas y una entrevista, sin cambiar nada fuera de .qdd/project/
+    produce: diagnostico.md con el semáforo, las fortalezas, las brechas y un plan, y su progreso respecto al anterior
+    verifica: [CVA-D01, CVA-D02, CVA-D03, CVA-D04, CVA-D05, CVA-D06, CVA-D07]
+  - id: registro-estado
+    si: {registro: estado}
+    accion: Crear una tarea por fase en .qdd/project/estado.yaml con las etapas Concepto · Artefacto · Medición · Puerta
+    produce: la tabla de estado con las 14 fases, coherente con el plan
+    verifica: [CVA-R01]
+  - id: ciclo
+    accion: Correr en cada fase el ciclo del tutor, en orden dentro de la fase; cada paso deja su entrada en la bitácora
+    produce: la explicación, el artefacto, la medición y la marca de cada fase, registradas
+    verifica: [CVA-C02]
+  - id: lenguaje
+    accion: Explicar con el nivel elegido y con el término de la industria, sin cambiar lo que exige cada puerta
+    produce: las mismas puertas y métricas con cualquier nivel
+    verifica: [CVA-C16]
+  - id: modo-tutor
+    si: {modo: tutor}
+    accion: Esperar a que la persona intente el artefacto, o pida ayuda, antes de escribirlo
+    produce: artefactos que hizo la persona, con el tutor explicando y comprobando
+    verifica: [CVA-M01]
+  - id: comprension-juego
+    si: {comprension: juego}
+    accion: Llevar el puntaje de lo aprendido aparte del estado de las fases
+    produce: XP y logros que no cambian ningún nivel, estado ni puerta
+    verifica: [CVA-J01]
+  - id: marcar
+    accion: Marcar ✅ solo con el artefacto, una corrida con id, la puerta aprobada por una persona y sus dependencias en ✅ o «—»; «—» solo lo decide una persona
+    produce: cada ✅ con su evidencia, cada puerta no cumplida en ❌ con lo que no se cumple, lo que falta en ⏳ y cada fase que no aplica en «—» con su motivo
+    verifica: [CVA-C03, CVA-C04, CVA-C05, CVA-C11, CVA-C19, CVA-C20]
+  - id: pii
+    si: {datos_personales: "si"}
+    accion: Anonimizar el corpus en F03 y no abrir F04 sin esa limpieza en ✅
+    produce: ningún ejemplo con PII en la anotación, en un prompt de un tercero ni en la bitácora
+    verifica: [CVA-P01]
+  - id: golden
+    accion: Congelar el golden con un manifiesto sha256, vigilar que el sha256 de sus ejemplos no aparezca en train ni en prompts y comparar siempre sobre su misma versión
+    produce: un golden que solo mide, y ninguna comparación entre versiones distintas
+    verifica: [CVA-C06, CVA-C07]
+  - id: baseline
+    accion: Medir el baseline sobre la misma versión del golden y exigir que el método lo supere
+    produce: una evaluación que sube a producción solo si supera al baseline y al KPI
+    verifica: [CVA-C08]
+  - id: umbral
+    accion: Elegir el umbral desde la curva de cobertura contra error, y escalar a una persona lo que queda bajo él
+    produce: umbral.md con cobertura, error y ECE antes y después de calibrar
+    verifica: [CVA-C09]
+  - id: reabrir
+    accion: Reabrir una fase cuando algo posterior muestra que falla, y devolver a ⏳ las fases con avance que dependen de ella, directa o indirectamente
+    produce: la fase y sus dependientes en ⏳, cada una con su reapertura y su motivo en la bitácora
+    verifica: [CVA-C10]
+  - id: agentes
+    accion: Validar el contrato de estado al entrar y al salir de cada agente, en una corrida de punta a punta sobre el golden
+    produce: una métrica por agente y ningún paso con un estado que no cumple el contrato
+    verifica: [CVA-C12]
+  - id: trazabilidad
+    accion: Escribir con cada salida qué agentes la produjeron, sus versiones, su confianza, el umbral y si la revisó una persona
+    produce: salidas que se pueden reconstruir una por una
+    verifica: [CVA-C13]
+  - id: produccion
+    accion: Pasar la regresión, activar el tablero y las alertas, probar el rollback y vigilar el drift en producción contra el error de F10 más {{tolerancia_drift}}
+    produce: un sistema en producción que, con drift, reabre F03 para sumar ejemplos nuevos
+    verifica: [CVA-C14, CVA-C15]
+  - id: bitacora
+    accion: Agregar a la bitácora cada evento sin secretos ni PII (cita por ruta y hash) y mantenerla coherente con el estado
+    produce: una bitácora que reconstruye por qué el sistema es como es y nunca contradice al estado
+    verifica: [CVA-C17, CVA-C18]
+
+ficha:
+  nombre: Ciclo de vida agéntico
+  rutas:
+    - .qdd/project/tutor/plan.yaml
+    - .qdd/project/tutor/bitacora.yaml
+    - .qdd/project/tutor/diagnostico.md
+    - .qdd/project/tutor/artefactos/
+  objetivo_operativo:
+    problema: >
+      Los proyectos agénticos se saltan etapas sin notarlo: sin golden, sin baseline, con el test usado para ajustar o
+      con el umbral a ojo. Las decisiones quedan perdidas en conversaciones, quien aprende no ve el mapa ni el
+      vocabulario, y un proyecto a la mitad no sabe en qué etapa está, qué hace bien ni qué le falta.
+    criterio_de_exito: >
+      Entre cuando entre, el proyecto tiene las 14 fases visibles con su estado y su madurez con evidencia. Un
+      proyecto en curso sabe en una página qué está bien, qué falta y qué mejorar primero. Cada ✅ tiene artefacto,
+      métrica calculada y puerta aprobada por una persona. La bitácora permite reconstruir por qué el sistema es como
+      es, y la persona puede explicar cada fase con el término de la industria.
+  objetivo_tecnologico:
+    arquitectura: >
+      Al aplicar, las 14 fases de esta ficha (con su artefacto, sus señales, su puerta y sus dependencias) se escriben
+      en .qdd/project/tutor/plan.yaml; referencias/fases.yaml las trae ya escritas, con el texto que explica el tutor.
+      En cada fase corre el ciclo del tutor. Las métricas salen de corridas de scripts o notebooks del proyecto: el
+      tutor solo las lee y las cita. plan.yaml lleva siempre el estado y el nivel de cada fase; con la tabla de estado,
+      estado.yaml los repite y los dos coinciden. Cada evento queda en bitacora.yaml. El golden se congela con un
+      manifiesto con sha256.
+    decisiones:
+      - "Las fases F01 a F07: Problema y KPI · Taxonomía y esquema · Corpus, limpieza y split · Anotación y acuerdo · Golden set · Baseline · Método"
+      - "Las fases F08 a F14: Entrenamiento o ajuste · Evaluación · Calibración y umbral · Equipo de agentes · Dependencias y contratos · Salidas, metadata y trazabilidad · Producción y mejora continua"
+      - "Artefacto y señales F01: problema.md · un README, PRD o issue con un objetivo medible, una métrica y una meta, o con «lo que no hace»"
+      - "Artefacto y señales F02: taxonomia.yaml y esquema.json · un enum o lista de categorías en el código o los prompts, un esquema de salida (JSON Schema, Pydantic), carpetas con nombres de categoría"
+      - "Artefacto y señales F03: corpus.manifest.yaml · carpetas data/, raw/ o processed/, un split en un notebook o script, un script de anonimización o deduplicación"
+      - "Artefacto y señales F04: guia_anotacion.md · una guía o instructivo de etiquetado, exportaciones con dos anotadores (Label Studio, Prodigy, una planilla), un cálculo de kappa"
+      - "Artefacto y señales F05: golden.manifest.yaml · carpetas eval/, golden/ o benchmark/, un manifiesto con versión y sha256"
+      - "Artefacto y señales F06: baseline.md · un script de reglas, regex o palabras clave, una corrida zero-shot, una comparación contra algo simple"
+      - "Artefacto y señales F07: metodo.md · prompts con o sin ejemplos, un pipeline de fine-tuning o adaptadores, un índice vectorial o un retriever"
+      - "Artefacto y señales F08: el checkpoint o el prompt versionado y sus curvas de loss · scripts de entrenamiento, logs de W&B, MLflow o TensorBoard, prompts versionados en git"
+      - "Artefacto y señales F09: evaluacion_vN.md · un reporte de métricas, un script de evaluación con id de corrida, una planilla de errores revisados"
+      - "Artefacto y señales F10: umbral.md · un campo de confianza en las salidas, una comparación de esa confianza contra un valor en el código, una curva de calibración"
+      - "Artefacto y señales F11: agentes.md · un grafo de LangGraph, un crew u otro orquestador, prompts o clases por rol, herramientas registradas por agente"
+      - "Artefacto y señales F12: contrato_estado.json · un TypedDict, Pydantic o JSON Schema del estado, referencias entre elementos, validaciones al entrar o salir de un agente"
+      - "Artefacto y señales F13: salidas.md con la estructura de carpetas y la convención de nombres · carpetas de salida con convención, metadata junto a cada salida, campos de versión"
+      - "Artefacto y señales F14: operacion.md · un CI que evalúa antes de desplegar, tableros, alertas o registros de correcciones humanas, una forma de volver a la versión anterior"
+      - "Puerta F01: el KPI con su métrica, si es mejor más alta o más baja, su meta y su error tolerado, y lo que queda fuera de alcance, escritos en problema.md y aprobados"
+      - "Puerta F02: cada clase o categoría con definición, ejemplo y contraejemplo, y una clase OTRO o la revisión de una persona para lo que no calza"
+      - "Puerta F03: split por grupo sin grupos compartidos entre partes, PII tratada y test congelado con su hash"
+      - "Puerta F04: κ ≥ {{kappa_minimo}} sobre al menos {{minimo_comunes}} anotados por ambos, con cada desacuerdo convertido en una regla de la guía"
+      - "Puerta F05: golden congelado con hash, revisado por {{revisores_golden}}, con todas las clases y sin fuga a train ni a prompts"
+      - "Puerta F06: el baseline medido con su corrida sobre la versión vigente del golden"
+      - "Puerta F07: el método elegido con una tabla comparativa de métrica, costo por caso y latencia"
+      - "Puerta F08: la mejor época o versión elegida por el loss de validación, con early stopping contra el overfitting (nunca por test ni golden), y reproducible; «—» si no entrena, decidido por una persona"
+      - "Puerta F09: cumple el KPI y supera al baseline sobre el mismo golden, con un análisis de errores"
+      - "Puerta F10: el umbral que cumple el error tolerado del KPI con la mayor cobertura, y a quién escala lo que queda bajo él"
+      - "Puerta F11: una métrica propia por agente y una corrida de punta a punta sobre el golden"
+      - "Puerta F12: el contrato de estado validado en cada paso y, si hay relaciones entre elementos, su precisión y recall medidos"
+      - "Puerta F13: toda salida con sus agentes, versiones, confianza, umbral y revisión humana, en la estructura y con la convención de nombres de salidas.md"
+      - "Puerta F14: la regresión pasada, el tablero y las alertas activos y el rollback probado"
+      - "Dependencias F02 a F08: F02 ← F01 · F03 ← F01 · F04 ← F02, F03 · F05 ← F02, F04 · F06 ← F01, F05 · F07 ← F06 · F08 ← F03, F05, F07"
+      - "Dependencias F09 a F14: F09 ← F01, F05, F06, F07, F08 · F10 ← F01, F09 · F11 ← F02, F05 · F12 ← F11 · F13 ← F02, F10, F11 · F14 ← F09, F10, F13"
+      - "Una fase no pasa a ✅ mientras una fase de la que depende no esté en ✅ o «—»; «—» no bloquea"
+      - "El orden es recomendado, no rígido: abrir una fase es empezar su ciclo, y no exige que sus dependencias estén en ✅ (F11 puede diseñarse desde F02)"
+      - "El estado de una fase sale de sus 4 etapas: ✅ con las 4 en ✅, ❌ si su Puerta está en ❌, «—» si no aplica y ⏳ en otro caso"
+      - "La etapa Concepto pasa a ✅ cuando el tutor explicó la fase y, si se comprueba la comprensión, la comprobación registra que se entendió; si no, el tutor vuelve a explicar"
+      - "Si falta el artefacto o la corrida, la etapa queda ⏳ con lo que falta; ❌ es solo para una puerta que una corrida muestra que no se cumple"
+      - "Volver a medir una puerta en ❌ con una corrida nueva la devuelve a ⏳ hasta evaluarla"
+      - "Una corrida es un resultado guardado por un script o notebook del proyecto con al menos su id, fecha, fase, versión de datos, versión del golden si lo usa, su semilla si hay azar y sus métricas; dónde vive y su formato los decide el proyecto"
+      - "En F01, F02, F07 y F13, cuya puerta es un documento, la medición es una corrida de un script del proyecto que valida el artefacto contra su puerta"
+      - "Cumplir el KPI es llegar a su meta en la dirección que dice el KPI; superar al baseline es ser estrictamente mejor en la métrica del KPI sobre la misma versión del golden"
+      - "El manifiesto del golden trae el sha256 de cada ejemplo y el del conjunto; la fuga la busca una corrida de F05 que compara esos sha256 con los de train y los de los ejemplos de los prompts"
+      - "El error tolerado del KPI es la tasa de error máxima en lo que el sistema decide solo; el umbral es el punto de la curva con error ≤ ese tolerado y la mayor cobertura; si empatan, el de umbral más alto"
+      - "Hay drift cuando la tasa de correcciones humanas en producción supera el error del umbral elegido en F10 más {{tolerancia_drift}}; se registra como una medición de F14 y reabre F03 para sumar ejemplos nuevos"
+      - "Cada paso del ciclo deja su entrada: explicar → explicación, hacer → decisión, medir → medición, marcar → puerta; registrar es escribirla"
+      - "Cada entrada de bitácora: fecha, fase, tipo (explicación, decisión, medición, puerta, reapertura, comprensión o diagnóstico), quién, qué, por qué y versiones de datos, golden, checkpoint y prompt"
+      - "«Quién» es el usuario de la persona en el equipo (p. ej. su usuario de git) o «tutor»: identidad del equipo, no PII del corpus; una aprobación la firma siempre una persona"
+      - "Una corrección es una entrada nueva que cita a la que corrige"
+      - "Reabrir una fase devuelve a ⏳ su Artefacto, su Medición y su Puerta, con su motivo"
+      - "Cada fase con avance que depende de la reabierta, directa o indirectamente, vuelve a ⏳ en Medición y Puerta con su propia reapertura; las que están en ❌ o «—» no cambian"
+      - "Una fase que no aplica va en «—», con su motivo, y lo decide una persona"
+      - "Una puerta se puede endurecer; relajarla queda registrado en la bitácora con quién y por qué"
+      - "El nivel de madurez dice qué tan sólida está una fase; el estado dice si su puerta pasó"
+    invariantes:
+      - "Sin artefacto, corrida con id y puerta aprobada por una persona no hay ✅"
+      - "El tutor nunca inventa ni estima una métrica: la lee de una corrida del proyecto y la cita"
+      - "El golden y el test nunca se usan para entrenar, ajustar ni armar prompts; si el sha256 de un ejemplo del golden aparece ahí, F05 pasa a ❌"
+      - "El golden congelado no se edita: se versiona"
+      - "Toda comparación se hace sobre la misma versión del golden"
+      - "Nada llega a producción sin superar al baseline y sin pasar la regresión"
+      - "Todo lo que queda bajo el umbral escala a una persona (human-in-the-loop)"
+      - "El nivel de explicación y el modo nunca cambian lo que se exige"
+      - "La bitácora no guarda secretos ni PII: cita por ruta y hash"
+      - "El estado y la bitácora no se contradicen"
+
+conformidad:
+  - id: CVA-C01
+    titulo: Las 14 fases visibles al aplicar
+    cuando: se aplica el blueprint
+    entonces: plan.yaml tiene las 14 fases, de F01 a F14, cada una con su artefacto, su puerta, su estado y su nivel
+  - id: CVA-C02
+    titulo: El ciclo en orden
+    dado: la fase F06 abierta
+    cuando: el tutor la trabaja
+    entonces: la bitácora tiene en orden una entrada de explicación, una de decisión, una de medición y una de puerta, y la marca va después de medir
+  - id: CVA-C03
+    titulo: Sin id de corrida no hay ✅
+    dado: una métrica de F09 escrita a mano, sin id de corrida
+    cuando: se pide marcar la fase
+    entonces: no pasa a ✅ y el tutor pide la corrida que la produce
+  - id: CVA-C04
+    titulo: La puerta la aprueba una persona
+    dado: F04 con κ 0,84 medido en una corrida y el mínimo cumplido
+    cuando: el tutor la marca
+    entonces: la Puerta queda ⏳ esperando la aprobación de una persona, no ✅
+  - id: CVA-C05
+    titulo: Puerta no cumplida
+    dado: F04 con κ 0,62 medido, bajo el mínimo
+    cuando: se evalúa la puerta
+    entonces: queda ❌ con los pares de etiquetas en que más se desacuerda, leídos de la corrida, y una propuesta para mejorar la guía
+  - id: CVA-C06
+    titulo: Fuga del golden
+    dado: F08 y F09 con avance y el sha256 de un ejemplo del golden en los ejemplos few-shot de un prompt
+    cuando: se detecta
+    entonces: >
+      F05 pasa a ❌, las fases con avance que dependen de F05 (entre ellas F08 y F09) vuelven a ⏳ y la bitácora
+      registra la fuga sin copiar el ejemplo
+  - id: CVA-C07
+    titulo: Una sola versión del golden
+    dado: el baseline medido sobre golden v1 y el método sobre golden v2
+    cuando: se pide compararlos
+    entonces: se rechaza y se pide medir los dos sobre la misma versión
+  - id: CVA-C08
+    titulo: Hay que superar al baseline
+    dado: un método con 0,81 en la métrica del KPI y un baseline con 0,84 sobre el mismo golden
+    cuando: se evalúa F09
+    entonces: queda ❌ y el método no pasa a producción
+  - id: CVA-C09
+    titulo: El umbral sale de la curva
+    cuando: se fija el umbral en F10
+    entonces: umbral.md tiene la curva de cobertura contra error, el punto elegido y la cobertura, el error y el ECE antes y después de calibrar
+  - id: CVA-C10
+    titulo: Reabrir desde una fase posterior
+    dado: F04, F05 y F09 en ✅ y un análisis de errores de F09 que encuentra una regla ambigua en la guía de anotación
+    cuando: se reabre F04
+    entonces: >
+      F04 vuelve a ⏳ con su motivo; F05, F09 y las demás fases con avance que dependen de F04 también, cada una con su
+      entrada de reapertura en la bitácora
+  - id: CVA-C11
+    titulo: Una fase que no aplica
+    dado: un sistema que usa few-shot sin entrenar ni ajustar pesos
+    cuando: una persona decide que F08 no aplica
+    entonces: F08 queda en «—» con su motivo y no bloquea a F09
+  - id: CVA-C12
+    titulo: Contratos entre agentes de punta a punta
+    dado: un equipo de agentes con su orquestador y su contrato de estado
+    cuando: se corre de punta a punta sobre el golden
+    entonces: el estado se valida al entrar y al salir de cada agente y un paso que no cumple el contrato detiene la corrida con el agente nombrado
+  - id: CVA-C13
+    titulo: Trazabilidad de cada salida
+    cuando: el sistema entrega una salida
+    entonces: lleva sus agentes, las versiones de datos, checkpoint y prompt, su confianza, el umbral y si la revisó una persona
+  - id: CVA-C14
+    titulo: Producción con red
+    cuando: se pide pasar F14
+    entonces: exige la regresión pasada sobre el golden, el tablero y las alertas activos y un rollback probado
+  - id: CVA-C15
+    titulo: Drift en producción
+    dado: un sistema en producción
+    cuando: la tasa de correcciones humanas supera el error del umbral de F10 más {{tolerancia_drift}}
+    entonces: >
+      el tutor registra el drift como una medición de F14, reabre F03 para sumar ejemplos nuevos y las fases con avance
+      que dependen de F03 vuelven a ⏳
+  - id: CVA-C16
+    titulo: El lenguaje no rebaja el rigor
+    dado: la misma fase explicada en nivel inicial, aprendiz y experto
+    cuando: se evalúa su puerta
+    entonces: exige el mismo artefacto, la misma métrica y la misma aprobación
+  - id: CVA-C17
+    titulo: Bitácora sin secretos
+    dado: una medición que usó una credencial y un ejemplo con datos personales
+    cuando: se registra en la bitácora
+    entonces: la entrada cita la corrida por su id y el ejemplo por ruta y hash, sin la credencial ni el dato
+  - id: CVA-C18
+    titulo: Bitácora y estado coinciden
+    cuando: se revisan el estado de las fases y la bitácora
+    entonces: cada ✅, ❌, «—» y reapertura del estado tiene su entrada en la bitácora, y ninguna entrada contradice al estado
+  - id: CVA-C19
+    titulo: Una dependencia sin ✅ bloquea
+    dado: F06 con su artefacto, su corrida y su puerta cumplida, y F05 en ⏳
+    cuando: una persona aprueba la puerta de F06
+    entonces: F06 no pasa a ✅ y el tutor dice que falta F05
+  - id: CVA-C20
+    titulo: Una puerta documental también se mide
+    dado: problema.md con el KPI y lo que queda fuera escritos, sin una corrida que lo valide
+    cuando: se pide marcar F01
+    entonces: F01 no pasa a ✅ y el tutor pide la corrida del script que valida problema.md contra su puerta
+
+referencias:
+  - referencias/fases.yaml
+  - referencias/diagnostico.ejemplo.md

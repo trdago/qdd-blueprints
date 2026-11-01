@@ -1,0 +1,313 @@
+# Las 14 fases del ciclo de vida agéntico (blueprint ciclo-de-vida-agentico).
+# Al aplicar el blueprint se copian a .qdd/project/tutor/plan.yaml. Cada fase trae:
+#   - concepto, para_que y como_se_mide: lo que explica el tutor;
+#   - depende_de: las fases que deben estar en ✅ o «—» para que esta pase a ✅ (abrirla no lo exige);
+#   - artefacto y puerta: lo que deja la fase y lo que debe cumplir para pasar a ✅ (la aprueba una persona);
+#   - senales: qué buscar en un repositorio para diagnosticarla;
+#   - madurez: qué significa cada nivel en esta fase (en todas, 0 es ausente confirmado por la persona y «?», que no se
+#     pudo comprobar; 3 es la puerta cumplida en una corrida, aunque falte la aprobación);
+#   - comprension: preguntas para saber si se entendió.
+# La fuente es la ficha del blueprint (artefactos, señales, puertas y dependencias); este archivo las repite ya escritas.
+# El kappa mínimo es el parámetro kappa_minimo del proyecto; las cantidades fijas son las constantes del blueprint.
+# El ejemplo que atraviesa las fases es un sistema multiagente que clasifica documentos de licitaciones, los archiva
+# en carpetas estándar con metadata y detecta dependencias entre ellos («Academia de Robots Archivadores»).
+fases:
+  - id: F01
+    nombre: Problema y KPI
+    mision: 1
+    depende_de: []
+    concepto: Qué hace el sistema, para quién, qué queda fuera y con qué número se sabe que funciona.
+    para_que: Sin un KPI numérico no hay cómo decidir si un cambio mejora o empeora, ni cuándo está listo.
+    como_se_mide: "Un script valida que problema.md trae el KPI con su métrica, su meta y su error tolerado (p. ej. macro-F1 ≥ 0,85 con error ≤ 5 % en lo automático)."
+    artefacto: problema.md
+    puerta: El KPI con su métrica, si es mejor más alta o más baja, su meta y su error tolerado, y lo que queda fuera de alcance, escritos y aprobados.
+    senales:
+      - "README o docs con un objetivo medible"
+      - "un problema.md, PRD o issue con una métrica y una meta"
+      - "tickets o conversaciones con «lo que no hace»"
+    madurez:
+      "1": Se sabe para qué es, pero no está escrito ni tiene un número.
+      "2": problema.md existe con el objetivo y lo que queda fuera.
+      "3": El KPI tiene métrica, meta y error tolerado, y está aprobado.
+      "4": El KPI se calcula solo en cada evaluación y su tablero lo muestra.
+    comprension:
+      - ¿Con qué número sabrías que el sistema ya sirve?
+      - Nombra algo que este sistema no va a hacer.
+
+  - id: F02
+    nombre: Taxonomía y esquema
+    mision: 2
+    depende_de: [F01]
+    concepto: Las clases MECE con definición, ejemplo y contraejemplo, y el esquema de metadata de cada salida.
+    para_que: Si las clases se solapan o dejan huecos, ni las personas ni el modelo pueden acertar.
+    como_se_mide: Cada clase tiene definición, ejemplo y contraejemplo; el esquema valida campos y tipos.
+    artefacto: taxonomia.yaml y esquema.json
+    puerta: Toda clase o categoría con definición, ejemplo y contraejemplo, y una clase OTRO o la revisión de una persona para lo que no calza.
+    senales:
+      - "un enum o una lista de clases en el código o en los prompts"
+      - "un JSON Schema, un modelo Pydantic o un esquema de salida"
+      - "carpetas de salida con nombres de clase"
+    madurez:
+      "1": Las clases están en un prompt o en la cabeza de alguien.
+      "2": taxonomia.yaml y esquema.json existen.
+      "3": Cada clase tiene definición, ejemplo y contraejemplo, y el esquema valida las salidas de una corrida.
+      "4": Cada salida se valida contra el esquema en producción y una clase nueva pasa por revisión.
+    comprension:
+      - ¿Qué significa que las clases sean MECE?
+      - ¿Para qué sirve un contraejemplo?
+
+  - id: F03
+    nombre: Corpus, limpieza y split
+    mision: 3
+    depende_de: [F01]
+    concepto: Ejemplos reales, sin duplicados ni PII, partidos en train, validación y test por grupo.
+    para_que: Un split al azar deja documentos de la misma licitación en train y en test, y la medición miente.
+    como_se_mide: Duplicados eliminados, PII tratada, ningún grupo en dos partes y el test con su hash.
+    artefacto: corpus.manifest.yaml
+    puerta: Split por grupo sin grupos compartidos, PII tratada y test congelado con su hash.
+    senales:
+      - "carpetas data/, raw/ o processed/"
+      - "un train_test_split o un split por fecha o por grupo en un notebook o script"
+      - "un script de anonimización o de deduplicación"
+    madurez:
+      "1": Hay ejemplos reunidos, sin partición o con un split al azar.
+      "2": corpus.manifest.yaml describe las fuentes y el split.
+      "3": El split es por grupo, sin grupos compartidos, con la PII tratada y el test con su hash, en una corrida.
+      "4": Cada ejemplo nuevo pasa por la limpieza y el chequeo de grupos antes de entrar.
+    comprension:
+      - ¿Por qué el split va por licitación y no al azar?
+      - ¿Qué es una fuga de datos?
+
+  - id: F04
+    nombre: Anotación y acuerdo
+    mision: 4
+    depende_de: [F02, F03]
+    concepto: Etiquetado experto con una guía versionada; el acuerdo entre anotadores se mide con el kappa de Cohen.
+    para_que: Si dos expertos no coinciden, el modelo no puede aprender lo que ni las personas tienen claro.
+    como_se_mide: "κ = (pₒ − pₑ) / (1 − pₑ) sobre ejemplos anotados por ambos; los desacuerdos se leen por par de clases."
+    artefacto: guia_anotacion.md y la medición de κ
+    puerta: κ ≥ kappa_minimo sobre al menos minimo_comunes anotados por ambos, con cada desacuerdo convertido en una regla de la guía.
+    senales:
+      - "una guía de anotación o un instructivo de etiquetado"
+      - "exportaciones de Label Studio, Prodigy o una planilla con dos anotadores"
+      - "un cohen_kappa_score en un notebook"
+    madurez:
+      "1": Una persona etiqueta sin guía escrita.
+      "2": La guía existe y está versionada.
+      "3": El κ está medido sobre minimo_comunes ejemplos comunes con un id de corrida y cumple el mínimo.
+      "4": El κ se vuelve a medir con cada versión de la guía o lote nuevo, y avisa si baja.
+    comprension:
+      - ¿Por qué el kappa descuenta el acuerdo por azar?
+      - Si κ sale bajo, ¿qué cambias primero?
+
+  - id: F05
+    nombre: Golden set
+    mision: 5
+    depende_de: [F02, F04]
+    concepto: Ejemplos perfectos de todas las clases, con casos difíciles, revisados por dos personas y congelados.
+    para_que: Es la vara con que se mide todo; si cambia o se filtra, ninguna comparación vale.
+    como_se_mide: Ejemplos por clase, casos difíciles, revisión doble y el hash del manifiesto.
+    artefacto: golden.manifest.yaml (versión, n por clase, sha256)
+    puerta: Congelado con su hash, revisado por revisores_golden, con todas las clases y sin fuga a train ni a prompts.
+    senales:
+      - "carpetas eval/, golden/ o benchmark/"
+      - "un archivo con sha256 o un manifiesto con versión"
+      - "ejemplos few-shot de los prompts que coinciden con los de evaluación (fuga)"
+    madurez:
+      "1": Hay unos ejemplos de prueba sueltos.
+      "2": golden.manifest.yaml existe con versión y n por clase.
+      "3": Está congelado con su hash, con revisión doble y sin fuga comprobada en una corrida.
+      "4": Cada cambio de train o de prompt revisa que el hash del golden no aparezca.
+    comprension:
+      - ¿Por qué el golden nunca se usa para entrenar ni para armar un prompt?
+      - ¿Qué haces si encuentras un error en el golden congelado?
+
+  - id: F06
+    nombre: Baseline
+    mision: 6
+    depende_de: [F01, F05]
+    concepto: La solución más simple que funciona (reglas o zero-shot), que todo lo demás debe superar.
+    para_que: Sin baseline no se sabe si el modelo complejo aporta algo o solo cuesta más.
+    como_se_mide: Las métricas de la tarea sobre la misma versión del golden que usará F09.
+    artefacto: baseline.md
+    puerta: Medido con su corrida sobre la versión vigente del golden.
+    senales:
+      - "un script de reglas, regex o palabras clave"
+      - "una corrida zero-shot guardada"
+      - "un notebook que compara contra una versión simple"
+    madurez:
+      "1": Se probó algo simple, sin números guardados.
+      "2": baseline.md describe la solución simple.
+      "3": Está medido sobre la versión del golden de F09, con su id de corrida.
+      "4": Se vuelve a medir con cada versión nueva del golden.
+    comprension:
+      - ¿Por qué hay que superar al baseline y no solo al KPI?
+
+  - id: F07
+    nombre: Método
+    mision: 7
+    depende_de: [F06]
+    concepto: Cómo se resuelve con modelos (zero-shot, few-shot, fine-tuning con un checkpoint propio, RAG o ruteo).
+    para_que: Cada método cambia el costo, la latencia y lo que hay que construir después.
+    como_se_mide: Una tabla comparativa con la métrica, el costo por caso y la latencia de cada candidato.
+    artefacto: metodo.md
+    puerta: La decisión con su tabla comparativa de métrica, costo por caso y latencia.
+    senales:
+      - "prompts con ejemplos (few-shot) o sin ellos (zero-shot)"
+      - "un pipeline de fine-tuning, adaptadores LoRA o checkpoints"
+      - "un índice vectorial o un retriever (RAG)"
+    madurez:
+      "1": Se eligió un método sin comparar.
+      "2": metodo.md dice cuál y por qué.
+      "3": La tabla comparativa está medida en corridas sobre validación.
+      "4": La comparación se repite cuando cambia el modelo base o el precio.
+    comprension:
+      - ¿Cuándo conviene few-shot y cuándo fine-tuning?
+
+  - id: F08
+    nombre: Entrenamiento o ajuste
+    mision: 8
+    depende_de: [F03, F05, F07]
+    concepto: Épocas, loss de train y de validación, early stopping, y checkpoints o prompts versionados.
+    para_que: Elegir la versión por el test o el golden es hacer trampa sin darse cuenta.
+    como_se_mide: Las curvas de loss y la época elegida por validación; «—» si el método no entrena.
+    artefacto: checkpoint o prompt versionado, y sus curvas
+    puerta: La mejor época o versión elegida por el loss de validación, con early stopping contra el overfitting (nunca por test ni golden), y reproducible; «—» si no entrena, decidido por una persona.
+    senales:
+      - "scripts de entrenamiento, configs de épocas o learning rate"
+      - "curvas de loss, logs de W&B, MLflow o TensorBoard"
+      - "prompts versionados en git"
+    madurez:
+      "1": Se entrenó o se ajustó a mano, sin registro.
+      "2": El checkpoint o el prompt están versionados.
+      "3": La versión se eligió por validación en una corrida reproducible, con sus curvas.
+      "4": El entrenamiento se reproduce desde un comando y registra cada corrida.
+    comprension:
+      - ¿Cómo se ve el overfitting en las curvas de loss?
+
+  - id: F09
+    nombre: Evaluación
+    mision: 9
+    depende_de: [F01, F05, F06, F07, F08]
+    concepto: Las métricas de la tarea (en clasificación, matriz de confusión, precisión, recall y F1 por clase y macro-F1) y el análisis de errores.
+    para_que: Un número alto en promedio puede esconder una clase que siempre falla.
+    como_se_mide: Las métricas de la tarea sobre el golden, comparadas con el baseline y el KPI, con los errores leídos uno a uno.
+    artefacto: evaluacion_vN.md
+    puerta: Cumple el KPI y supera al baseline sobre el mismo golden, con un análisis de errores.
+    senales:
+      - "un classification_report o una matriz de confusión en un notebook"
+      - "un script de evaluación con id de corrida"
+      - "una planilla de errores revisados"
+    madurez:
+      "1": Se miró si funcionaba con algunos casos.
+      "2": Hay una métrica calculada, sin poder reproducirla.
+      "3": La evaluación tiene id de corrida, usa el golden y compara con el baseline y el KPI.
+      "4": Se evalúa sola en cada cambio y avisa si una clase baja.
+    comprension:
+      - ¿Por qué macro-F1 y no solo accuracy?
+      - ¿Qué te dice la matriz de confusión que el F1 no?
+
+  - id: F10
+    nombre: Calibración y umbral
+    mision: 10
+    depende_de: [F01, F09]
+    concepto: Confianza calibrada (ECE), curva de cobertura contra error y human-in-the-loop bajo el umbral.
+    para_que: Decide cuánto hace solo el sistema y cuánto revisa una persona, con el error que pide el KPI.
+    como_se_mide: El ECE antes y después de calibrar, y el punto de la curva que cumple el error con la mayor cobertura.
+    artefacto: umbral.md
+    puerta: El umbral que cumple el error tolerado del KPI con la mayor cobertura, y a quién escala lo que queda bajo él.
+    senales:
+      - "un campo confidence o score en las salidas"
+      - "un if score > X en el código o en el orquestador"
+      - "una curva de calibración o un ECE en un notebook"
+    madurez:
+      "1": Hay un umbral elegido a ojo.
+      "2": umbral.md dice cuál y a quién escala.
+      "3": Sale de la curva medida en una corrida, con el ECE antes y después.
+      "4": La cobertura y el error se miden en producción y avisan si se alejan.
+    comprension:
+      - ¿Qué pasa con la cobertura si subes el umbral?
+
+  - id: F11
+    nombre: Equipo de agentes
+    mision: 11
+    depende_de: [F02, F05]
+    concepto: Los roles, las herramientas y los contratos de cada agente, y el orquestador que decide quién actúa.
+    para_que: Un error de un agente se propaga a todos; sin métrica por agente no se sabe dónde nace.
+    como_se_mide: Una métrica propia por agente y una corrida de punta a punta sobre el golden.
+    artefacto: agentes.md
+    puerta: Una métrica propia por agente y una corrida de punta a punta sobre el golden.
+    senales:
+      - "un grafo de LangGraph, un crew de CrewAI o un orquestador propio"
+      - "prompts o clases por rol (clasificador, archivador, detector de dependencias)"
+      - "herramientas registradas por agente"
+    madurez:
+      "1": Los agentes existen en el código, sin roles escritos.
+      "2": agentes.md describe roles, herramientas y orquestador.
+      "3": Cada agente tiene su métrica y hay una corrida de punta a punta sobre el golden.
+      "4": Las métricas por agente se miden solas en cada cambio.
+    comprension:
+      - ¿Para qué una métrica por agente si ya mides el sistema completo?
+
+  - id: F12
+    nombre: Dependencias y contratos
+    mision: 12
+    depende_de: [F11]
+    concepto: El contrato de estado entre agentes y, si aplica, el grafo de relaciones entre elementos.
+    para_que: Un estado que no cumple su contrato rompe al agente siguiente en silencio.
+    como_se_mide: El esquema del estado validado en cada paso y, si hay relaciones, su precisión y recall.
+    artefacto: contrato_estado.json
+    puerta: El contrato validado en cada paso y, si hay relaciones entre elementos, su precisión y recall medidos.
+    senales:
+      - "un TypedDict, un modelo Pydantic o un JSON Schema del estado del grafo"
+      - "aristas o referencias entre documentos (p. ej. «aclara a», «modifica a»)"
+      - "validaciones al entrar o salir de un nodo"
+    madurez:
+      "1": El estado pasa entre agentes sin forma escrita.
+      "2": contrato_estado.json existe.
+      "3": Se valida en cada paso de una corrida y las relaciones tienen precisión y recall medidos.
+      "4": Un estado inválido detiene la corrida en producción y avisa.
+    comprension:
+      - ¿Qué pasa si un agente entrega un campo que el siguiente no espera?
+
+  - id: F13
+    nombre: Salidas, metadata y trazabilidad
+    mision: 13
+    depende_de: [F02, F10, F11]
+    concepto: Estructura estándar de carpetas, convención de nombres y metadata por elemento.
+    para_que: Permite auditar cada salida y saber qué versión la produjo cuando algo falla.
+    como_se_mide: Cada salida validada contra el esquema, con sus agentes, versiones, confianza, umbral y revisión.
+    artefacto: salidas.md (estructura de carpetas y convención de nombres)
+    puerta: Toda salida con sus agentes, versiones, confianza, umbral y revisión humana, en la estructura y con la convención de salidas.md.
+    senales:
+      - "carpetas de salida con una convención de nombres"
+      - "archivos de metadata junto a cada documento archivado"
+      - "campos de versión, modelo o prompt en las salidas"
+    madurez:
+      "1": Las salidas se guardan sin convención.
+      "2": salidas.md describe la estructura y la convención.
+      "3": Una corrida valida que cada salida trae su metadata completa.
+      "4": Una salida sin metadata completa no se publica.
+    comprension:
+      - Si una salida está mal, ¿qué necesitas saber para encontrar la causa?
+
+  - id: F14
+    nombre: Producción y mejora continua
+    mision: 14
+    depende_de: [F09, F10, F13]
+    concepto: Regresión, rollback, monitoreo, drift y ciclo de mejora (MLOps).
+    para_que: Lo medido hoy deja de valer cuando cambian los datos; sin red, un error llega a todos.
+    como_se_mide: La regresión sobre el golden, el tablero y las alertas, el rollback probado y la tasa de correcciones.
+    artefacto: operacion.md
+    puerta: La regresión pasada, el tablero y las alertas activos y el rollback probado.
+    senales:
+      - "un pipeline de CI que evalúa antes de desplegar"
+      - "dashboards, alertas o logs de correcciones humanas"
+      - "una forma de volver a la versión anterior (tags, feature flags)"
+    madurez:
+      "1": Está en producción sin monitoreo.
+      "2": operacion.md describe regresión, tablero y rollback.
+      "3": La regresión pasó en una corrida, el tablero está activo y el rollback se probó.
+      "4": La regresión corre en cada despliegue y el drift dispara una alerta y reabre la fase.
+    comprension:
+      - ¿Qué señal en producción te dice que hay drift?
