@@ -18,6 +18,7 @@ alcance:
   incluye:
     - "La tabla de tareas × etapas con cuatro estados y sus reglas de evidencia"
     - "La revisión automática de que un reporte cumple las reglas"
+    - "Las dependencias entre tareas: una tarea no termina antes que las tareas de las que depende"
   excluye:
     - "Cómo dibuja el panel cada consola (eso es de consola-claude-code y de cada panel)"
     - "Asignar tareas a personas o estimar plazos"
@@ -52,6 +53,14 @@ vocabulario:
     definicion: "De dónde viene un pulso, una de tres: agente, subagente o comando."
   - termino: vida
     definicion: Cuánto sigue en curso una tarea sin pulsos antes de apagarse sola; la elige cada proyecto.
+  - termino: dependencia
+    definicion: Una tarea que otra espera; la que espera no termina antes que ella.
+  - termino: terminada
+    definicion: Una tarea cerrada, o abierta con todas sus etapas en ✅ o —. Una descartada no termina.
+  - termino: objetivo
+    definicion: Para qué se hacen unas tareas y cuándo se cumple (su criterio de éxito).
+  - termino: foco
+    definicion: El objetivo abierto en el que se trabaja ahora; a lo más uno, y se muestra primero.
   - termino: actividad
     definicion: >
       El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
@@ -129,6 +138,61 @@ preguntas:
         descripcion: Las tareas abiertas y las recién cerradas.
       - valor: todos
         descripcion: Todas las tareas.
+  - id: objetivos
+    pregunta: ¿Las tareas se agrupan bajo objetivos?
+    ayuda: >
+      Un objetivo dice para qué se hacen sus tareas y cuándo se cumple; sirve para ver el foco actual y si una tarea
+      empuja algo. Sin objetivos la tabla sigue plana, con sus dependencias.
+    por_defecto: si
+    opciones:
+      - valor: si
+        descripcion: Sí. Cada objetivo tiene un criterio de éxito, uno puede ser el foco y una tarea puede no tener objetivo.
+        alcance: {incluye: ["Los objetivos con su criterio de éxito, el foco y la tabla agrupada por objetivo"]}
+        decisiones:
+          - "Un objetivo tiene id, nombre y criterio de éxito; cada tarea dice a qué objetivo sirve, o a ninguno"
+          - "Pueden estar abiertos varios objetivos; a lo más uno es el foco, y marcar uno desmarca al anterior"
+          - "Un objetivo se cumple ✅ solo con evidencia de su criterio; con todas sus tareas terminadas y sin esa evidencia queda ⏳ «tareas listas, falta verificar el criterio»"
+          - "Un objetivo abierto con tareas pendientes queda ⏳ «n/m tareas listas» (las descartadas no cuentan)"
+          - "Un objetivo se cierra cumplido (con su evidencia) o descartado (con su motivo); sus tareas siguen en la tabla"
+          - "En la tabla, antes de las tareas de cada objetivo va su fila: «🎯 <objetivo>» (con «· foco» si lo es) en la primera columna, «—» en cada etapa salvo la última, que lleva su estado y su criterio"
+          - "Los objetivos van con el foco primero y después en orden; las tareas sin objetivo van al final bajo una fila «🎯 sin objetivo», con todas sus etapas en «—»"
+          - "Una tarea que depende de otra de otro objetivo queda bajo su propio objetivo y dice «espera a X (otro objetivo)»"
+        invariantes:
+          - "Un objetivo cumplido lleva evidencia de su criterio; terminar sus tareas no basta"
+          - "A lo más un objetivo abierto es el foco"
+          - "Una tarea sirve a un objetivo que existe, o a ninguno"
+          - "Un objetivo no desaparece en silencio"
+        conformidad:
+          - id: EPT-O01
+            titulo: Objetivo con criterio
+            cuando: se crea un objetivo sin nombre o sin criterio de éxito
+            entonces: es un error y no se escribe nada
+          - id: EPT-O02
+            titulo: El objetivo de una tarea existe
+            cuando: una tarea dice servir a un objetivo que no está
+            entonces: no vale y no se escribe
+          - id: EPT-O03
+            titulo: Un solo foco
+            dado: un objetivo que es el foco
+            cuando: se marca otro como foco
+            entonces: el anterior deja de serlo; dos focos abiertos no valen
+          - id: EPT-O04
+            titulo: Cumplido solo con evidencia
+            dado: un objetivo con todas sus tareas terminadas
+            cuando: se reporta
+            entonces: queda ⏳ «tareas listas, falta verificar el criterio» y pasa a ✅ solo con la evidencia de su criterio
+          - id: EPT-O05
+            titulo: El objetivo no desaparece
+            dado: un objetivo presente en el reporte anterior
+            cuando: no figura en el nuevo
+            entonces: no vale; se cierra cumplido con su evidencia o descartado con su motivo
+          - id: EPT-O06
+            titulo: La tabla agrupa por objetivo
+            cuando: se entrega la tabla
+            entonces: cada objetivo tiene su fila 🎯 antes de sus tareas, el foco primero, y las tareas sin objetivo van al final bajo «🎯 sin objetivo»
+      - valor: "no"
+        descripcion: No. La tabla es plana; las dependencias entre tareas valen igual.
+        alcance: {excluye: ["Objetivos y foco"]}
   - id: destino
     pregunta: ¿Dónde queda la tabla?
     por_defecto: respuesta
@@ -137,12 +201,25 @@ preguntas:
         descripcion: Solo en la respuesta o el reporte.
       - valor: archivo
         descripcion: Además en el archivo .qdd/project/estado.yaml del proyecto.
-        decisiones: ["Una sesión cortada o un agente nuevo retoma desde los ⏳ del archivo, sin rehacer lo hecho"]
+        decisiones:
+          - "Una sesión cortada o un agente nuevo retoma desde los ⏳ del archivo, sin rehacer lo hecho"
+          - "El JSON del panel trae el árbol resuelto: las filas en orden (por objetivo si los hay, el foco primero), cada una con su prefijo de dibujo («├─ », «│  └─ »), sus notas «espera a X» y la pregunta para el agente; los paneles solo lo dibujan"
+          - "Cada tarea cuelga de su primera dependencia visible del mismo objetivo; sin ella es raíz. Bajo un objetivo las raíces llevan conector; sin objetivos, no"
+          - "La pregunta de una tarea es «¿Cómo vamos con «<tarea>»? Avance, bloqueos y siguiente paso; actualiza sus celdas con evidencia.»; la de un objetivo nombra también su criterio"
         conformidad:
           - id: EPF-A01
             titulo: El archivo y la respuesta coinciden
             cuando: se entrega una tabla y se actualiza .qdd/project/estado.yaml
             entonces: ambos tienen las mismas tareas, etapas y estados
+          - id: EPT-A02
+            titulo: El árbol de dependencias
+            dado: tareas que dependen de otras
+            cuando: se arma el JSON del panel
+            entonces: cada tarea viene después de su primera dependencia visible, con su prefijo de árbol, y dice «espera a X» por cada dependencia que no terminó
+          - id: EPT-A03
+            titulo: Cada fila trae su pregunta
+            cuando: se arma el JSON del panel
+            entonces: cada tarea (y cada objetivo, si los hay) trae la pregunta «¿Cómo vamos con…?» que el panel le envía al agente al pincharla
       - valor: tablero
         descripcion: Además en un tablero compartido.
         depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
@@ -325,6 +402,15 @@ pasos:
     accion: Poner la Puerta de calidad antes de Producción
     produce: Producción sin ✅ mientras la Puerta no tenga su ✅ con evidencia
     verifica: [EPT-M01]
+  - id: dependencias
+    accion: Guardar de qué tareas depende cada una y rechazar la última etapa en ✅ o el cierre mientras una no termine
+    produce: ninguna tarea termina antes que sus dependencias y ninguna dependencia rota o en ciclo
+    verifica: [EPT-D01, EPT-D02]
+  - id: objetivos
+    si: {objetivos: si}
+    accion: Agrupar las tareas bajo objetivos con su criterio, a lo más un foco, y cumplirlos solo con evidencia
+    produce: una tabla con una fila 🎯 por objetivo antes de sus tareas, el foco primero y las sin objetivo al final
+    verifica: [EPT-O01, EPT-O02, EPT-O03, EPT-O04, EPT-O05, EPT-O06]
   - id: reporte
     accion: Comparar cada reporte con el anterior y con su texto, y revisar que no lleve secretos
     produce: ninguna tarea desaparece sin cierre o descarte con motivo, el texto coincide con la tabla y no hay datos personales
@@ -332,8 +418,8 @@ pasos:
   - id: archivo
     si: {destino: archivo}
     accion: Guardar la misma tabla en .qdd/project/estado.yaml en cada reporte
-    produce: un archivo desde el que otro agente retoma por los ⏳
-    verifica: [EPF-A01]
+    produce: un archivo desde el que otro agente retoma por los ⏳, y un JSON del panel con el árbol y la pregunta de cada fila
+    verifica: [EPF-A01, EPT-A02, EPT-A03]
   - id: actividad
     si: {en_curso: [todos, solo-agente]}
     accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
@@ -391,6 +477,9 @@ ficha:
       - "La aprobación dada se escribe «✅ … aprobado por <rol>»; la que falta, «⏳ espera aprobación de <rol>»"
       - "Un cierre se escribe en el reporte como «<tarea>: cerrada — <motivo>» o «<tarea>: descartada — <motivo>»"
       - "El texto afirma un estado con «<tarea> · <etapa>: <estado>»; solo esas afirmaciones se comparan con la tabla, y una sobre una tarea o etapa que no está en ella también la contradice"
+      - "Una tarea puede depender de otras (por su id); mientras una no termine, su última etapa que aplica no pasa a ✅ ni se cierra, y la tabla la nombra «<tarea> (espera a X, Y)»"
+      - "Una dependencia que no existe, la de una tarea consigo misma o una que cierra un ciclo no vale"
+      - "Descartar una dependencia no libera a quien la espera: hay que quitarla de sus dependencias"
       - "Credenciales y datos personales, como mínimo: correos, teléfonos, RUT u otro identificador nacional, tokens con prefijo conocido (sk-, ghp_, AKIA, xox, npm_), claves privadas, «clave=», «token=», «password=» y «Bearer …»; un proyecto puede agregar, nunca quitar"
     invariantes:
       - "Cada celda tiene exactamente un estado"
@@ -402,6 +491,8 @@ ficha:
       - "Una tarea no desaparece en silencio"
       - "No hay credenciales ni datos personales en el reporte: ni en la tabla ni en el texto"
       - "El texto y la tabla no se contradicen"
+      - "Una tarea no termina antes que sus dependencias"
+      - "Las dependencias no hacen ciclos"
 
 conformidad:
   - id: EPF-C01
@@ -438,6 +529,15 @@ conformidad:
     titulo: Texto y tabla coinciden
     cuando: el texto del reporte afirma un estado
     entonces: la tabla muestra ese mismo estado
+  - id: EPT-D01
+    titulo: Una dependencia existe y no hace ciclo
+    cuando: una tarea depende de una que no está, de sí misma o de una que la espera
+    entonces: no vale y no se escribe
+  - id: EPT-D02
+    titulo: Sin sus dependencias no termina
+    dado: una tarea con una dependencia que no terminó
+    cuando: su última etapa que aplica pasa a ✅ o se cierra
+    entonces: es un error, no se escribe y dice a quién espera; con la dependencia terminada (o cerrada) sí
   - id: EPF-C09
     titulo: ❌ con su falla nombrada
     cuando: una celda está en ❌
