@@ -9,7 +9,7 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 9.0.0
+version: 10.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
@@ -132,13 +132,16 @@ preguntas:
           - "Antes de las tareas de cada objetivo va su cabecera «🎯 <objetivo>» en negrita (el foco en el color de acento, con «· foco») y su estado atenuado; las tareas sin objetivo van al final bajo «🎯 sin objetivo»"
           - "Pinchar el nombre de una tarea o de un objetivo envía a la conversación la pregunta que trae qdd («¿Cómo vamos con…?»): la IA responde avance, bloqueos y siguiente paso y actualiza el estado"
           - "«l ↻» vuelve a leer el tablero en el acto, sin esperar a la próxima lectura"
+          - "Sincronía panel–chat (qdd ≥ 2.8.0): junto a cada mensaje de la persona, el panel le pasa a la IA lo que espera de ella (pedidos que ya se pueden ejecutar, fichas en borrador y etapas ⏳ de la persona), en una línea que arma qdd ('qdd consola ciclo --contexto') y solo cuando cambió"
+          - "Si el mensaje de la persona acepta, rechaza, cambia o deja sin efecto algo que el panel espera, la IA lo refleja en el acto: descarta el pedido, lo marca hecho por la persona (con su tecla y una nota) o actualiza la celda; lo que esperaba a ese pedido queda libre"
+          - "Una tool de qdd o un comando qdd que corre la IA hace que el panel vuelva a leer en el acto, sin esperar a la próxima lectura"
         invariantes:
           - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
           - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
           - "Una acción que escribe (aprobar una ficha, auditar) nunca corre sin el segundo paso de la persona"
           - "El panel solo pasa ids de acción; el único texto libre que se ejecuta es un comando que la IA dejó para la persona"
           - "Ese comando corre solo después de que la persona ve su motivo, el comando exacto y la carpeta y confirma con «s  Sí»; QDD nunca lo ejecuta por su cuenta y la IA no lo ejecuta en su lugar"
-          - "El único texto que el panel envía a la conversación es el mensaje que qdd arma para atender una etapa, y solo cuando la persona pulsa esa etapa"
+          - "El único texto que el panel envía a la conversación lo arma qdd: el mensaje para atender una etapa o la pregunta de una fila, solo cuando la persona la pulsa, y lo que el panel espera de la persona, junto a su mensaje y solo cuando cambió"
           - "Un tipo de acción nuevo y opcional (p. ej. atender) qdd lo entrega solo al panel que lo pide ('qdd consola panel --con <tipo>'); el panel muestra solo los tipos que sabe dibujar, nunca un botón sin tecla o sin etiqueta"
         conformidad:
           - id: CCC-C06
@@ -234,6 +237,25 @@ preguntas:
             entonces: >
               cada objetivo tiene su cabecera 🎯 (el foco primero, en el color de acento) con su estado, sus tareas debajo con
               su prefijo y a quién esperan, las etapas a la derecha y las tareas sin objetivo al final bajo «🎯 sin objetivo»
+          - id: CCC-C30
+            titulo: Lo que espera el panel viaja con el mensaje
+            dado: el pedido «Merge #7» espera en «▶ Para ti»
+            cuando: la persona envía un mensaje
+            entonces: >
+              la IA lo recibe con la línea de qdd «[qdd · panel] Espera a la persona: pedido <tecla> «Merge #7» …»; el siguiente
+              mensaje, sin cambios en lo que espera, no lleva nada extra; con un qdd que no conoce '--contexto' el panel igual marca
+              el ciclo y no muestra un error
+          - id: CCC-C31
+            titulo: El panel sigue a la IA
+            cuando: la IA usa una tool de qdd o corre un comando qdd
+            entonces: el panel vuelve a leer 'qdd consola panel --json' en cuanto la tool termina
+          - id: CCC-C32
+            titulo: Resuelto en el chat
+            dado: el pedido «merge» espera en «▶ Para ti» y el pedido «tag» espera a «merge»
+            cuando: la persona dice en el chat que ya hizo el merge y la IA lo marca hecho por la persona con su tecla
+            entonces: >
+              «merge» queda hecho con la nota de la persona, sin ejecutar nada, y «tag» se puede ejecutar; una tecla que no existe
+              es un error y no cambia la cola
           - id: CCC-C28
             titulo: Preguntar cómo vamos
             cuando: la persona pincha el nombre de una tarea o de un objetivo
