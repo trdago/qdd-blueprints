@@ -1,0 +1,167 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: ciclo-de-vida-agentico@0.1.0
+huella: d1e731f11d433102d63a879132f6ae58c40afc5dba39bc1e4505eb3466e5f893
+fecha: 2026-11-01 01:50
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        comprension: preguntas
+        datos_personales: si
+        entrada: inicio
+        kappa_minimo: "0.8"
+        modo: copiloto
+        nivel: aprendiz
+        registro: estado
+        tipo_tarea: clasificacion
+        tolerancia_drift: "0.02"
+      escenarios:
+        - CVA-C01
+        - CVA-C02
+        - CVA-C03
+        - CVA-C04
+        - CVA-C05
+        - CVA-C06
+        - CVA-C07
+        - CVA-C08
+        - CVA-C09
+        - CVA-C10
+        - CVA-C11
+        - CVA-C12
+        - CVA-C13
+        - CVA-C14
+        - CVA-C15
+        - CVA-C16
+        - CVA-C17
+        - CVA-C18
+        - CVA-C19
+        - CVA-C20
+        - CVA-R01
+        - CVA-P01
+      lenguaje: Go 1.24 (solo biblioteca estándar; go.mod declara go 1.24, probado con el toolchain go 1.25.5 instalado)
+      comando: go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 22/22
+      supuestos:
+        - 'Arquitectura (YAML): sin dependencias externas no hay parser YAML; plan.yaml, estado.yaml, bitacora.yaml y golden.manifest.yaml se escriben como JSON indentado, que es YAML 1.2 válido. Las pruebas los leen con encoding/json.'
+        - 'Arquitectura (referencias/fases.yaml): la receta dice que ese archivo trae las 14 fases con el texto que explica el tutor, pero no está en la carpeta. Escribí yo los textos (concepto, para qué sirve, cómo se mide, término de la industria y preguntas de comprensión) en fases.go y no genero ese archivo.'
+        - 'Arquitectura (bitácora): la receta no dice dónde vive bitacora.yaml; la puse en .qdd/project/tutor/bitacora.yaml, junto a plan.yaml.'
+        - 'Paso 2 (estado.yaml): el formato de la tabla de estado-por-tareas es de otro blueprint y no se describe; definí {tareas: [{id, titulo, estado, nivel, Concepto, Artefacto, Medición, Puerta, limpieza_pii, motivo, reaperturas}]}, con cada etapa como celda {estado, nota, faltan, no_cumple, corrida, aprobada_por}.'
+        - 'Arquitectura (plan y estado): plan.yaml y estado.yaml repiten estado y nivel; se recalculan juntos tras cada evento y Coinciden() comprueba que digan lo mismo.'
+        - 'Corridas: la receta deja dónde viven y su formato al proyecto. El tutor las lee de una interfaz FuenteCorridas (en las pruebas, una fuente en memoria en que una corrida guardada no se reescribe). Una corrida sin id, fecha, fase, versión de datos o métricas no se acepta.'
+        - 'Puertas (nombres de métricas): la receta no fija qué métricas trae cada corrida. Inventé los nombres que lee cada puerta: incumplimientos (validadores documentales), grupos_compartidos, pii_restante, kappa, ejemplos_doble, desacuerdos_sin_regla, revisores, clases_faltantes, fugas, mejor_epoca, early_stopping, punta_a_punta, pasos_validados, pasos_invalidos, precision_relaciones, recall_relaciones, ece_antes, ece_despues, regresion_ok, tablero_activo, alertas_activas, rollback_probado y tasa_correcciones, más un Detalle estructurado (curva, pares en desacuerdo, métricas por agente, seleccion_por, hash del test, sha256 fugados, análisis de errores).'
+        - 'F01, F02, F07 y F13 (puertas documentales): la corrida del script validador cumple si incumplimientos = 0; sus incumplimientos textuales pasan a la celda como lo que no se cumple.'
+        - 'F01 (KPI): además de problema.md, el KPI (métrica, dirección mayor/menor, meta, error tolerado, fuera de alcance) se registra estructurado en plan.yaml con DefinirKPI, porque F06, F09 y F10 lo necesitan y el tutor no interpreta Markdown. El error tolerado es una tasa entre 0 y 1.'
+        - 'Paso 3 (orden del ciclo): hacer exige una explicación previa de la fase, medir exige el Artefacto en ✅ y marcar exige la Medición en ✅. La comprobación de comprensión va entre explicar y hacer, pero hacer no exige el Concepto en ✅ (solo que se haya explicado).'
+        - 'Paso 3 y CVA-C04 (marcar frente a aprobar): marcar lo hace el tutor y deja la Puerta en ⏳ con cumple=true y una entrada de tipo puerta; aprobar es una segunda entrada de tipo puerta, firmada por una persona, que deja la aprobación escrita en la celda.'
+        - 'Paso 5 y CVA-C19 (aprobación con dependencias pendientes): la aprobación se rechaza con un error que nombra la dependencia que falta y no queda guardada; la persona vuelve a aprobar cuando la dependencia esté en ✅ o «—». La receta no dice si una aprobación prematura se conserva.'
+        - 'Paso 5 (Concepto): la lista del paso 5 no menciona el Concepto, así que aprobar la Puerta no lo exige; aun así la fase solo queda en ✅ con las 4 etapas en ✅.'
+        - 'Reapertura (con avance): tiene avance una fase con al menos una de sus 4 etapas en ✅. La cascada recorre todo el grafo de dependencias de forma transitiva, también a través de fases en ❌ o «—», que no cambian.'
+        - 'CVA-C06 (fuga): F05 no se reabre; su Puerta pasa a ❌ (el Artefacto sigue en ✅) y sus dependientes con avance reciben entradas de reapertura que citan la fuga por sha256 y ruta. La fuga la detecta una corrida de F05 con fugas > 0 (BuscarFuga es la ayuda para el script del proyecto).'
+        - 'CVA-C15 (drift): supera es estrictamente mayor (con tolerancia 1e-9 por la coma flotante); el error de F10 es el del punto elegido en la curva, no el error tolerado del KPI. El drift queda como medición de F14 en la bitácora, pero no reemplaza la corrida de la celda Medición de F14.'
+        - 'CVA-C15 y Paso 6 (drift y PII): al reabrir F03 también vuelve a ⏳ su limpieza de PII, porque los ejemplos nuevos deben anonimizarse antes de anotar; por eso F04 no se puede volver a trabajar hasta una limpieza nueva. La receta no lo dice.'
+        - 'Paso 6: sin la limpieza de PII de F03 en ✅, F04 no se abre, no se explica, no se hace, no se mide y no se aprueba; la receta solo habla de abrir. La limpieza se aprueba con una corrida con pii_restante = 0 y la firma de una persona, y la puerta de F03 la exige antes que el resto.'
+        - 'Paso 9 y CVA-C09 (umbral): el sistema decide solo si confianza ≥ umbral. La regla error ≤ tolerado incluye el igual. umbral.md lo escribe el tutor (modo copiloto: propone) desde la curva y el ECE de la corrida, y se registra como el hacer de F10. A quién escala es un rol o usuario del equipo, sin PII.'
+        - 'Nivel de madurez: los niveles son acumulativos (el 3 exige además el artefacto, y el 4 además que se mida solo). Una fase en «—» tiene nivel «—», que la receta no define. Al reabrir, el nivel baja según lo que queda en pie.'
+        - 'Diagnóstico: el tutor recibe la evidencia encontrada (señales, artefactos, id de corrida, si se controla sola, si no se pudo comprobar) en vez de escanear el repositorio. Solo lectura significa que no toca los archivos del proyecto; sí escribe plan.yaml, estado.yaml y bitacora.yaml. Si una corrida existente muestra que la puerta no se cumple, la Puerta queda en ❌. Para calcular el nivel 3 se omiten las aprobaciones humanas internas del ciclo (la limpieza de PII de F03 y a quién escala en F10).'
+        - 'Diagnóstico (brechas): el riesgo, el impacto y el esfuerzo son una heurística mía (el impacto se cuenta por las fases dependientes). Qué mejorar primero es la brecha bajo nivel 3 que más fases desbloquea; si empatan, la de la fase más temprana.'
+        - 'Paso 14 y CVA-C17 (PII y secretos): se detectan por patrón (correos, RUT, teléfonos con +código, credenciales tipo api_key=, sk-, AKIA, ghp_, Bearer). Nombres y direcciones no se pueden detectar por patrón, así que se evitan por construcción: el tutor nunca copia el contenido de un ejemplo ni los parámetros de una corrida, solo cita por ruta y sha256. Una entrada con un dato sensible detectado se rechaza entera, no se redacta.'
+        - 'Bitácora (quién): es el usuario del equipo o «tutor»; un correo como usuario se rechaza por ser PII. Las versiones de datos, golden, checkpoint y prompt que todavía no existen se registran como «ninguna».'
+        - 'Bitácora y estado: cada entrada guarda estado_fase (el estado de la fase después del evento). VerificarCoherencia compara la última entrada de cada fase con el estado y exige una aprobación por persona para cada ✅, un no_cumple para cada ❌, una decisión no_aplica para cada «—» y que cada reapertura figure en los dos.'
+        - 'Golden: el sha256 del conjunto es el sha256 de los sha256 de los ejemplos, ordenados y unidos por saltos de línea. Cada versión se guarda en golden/<versión>/golden.manifest.yaml. Congelar una versión nueva la vuelve vigente pero no reabre F06 ni F09 medidas sobre la anterior.'
+        - 'CVA-C07: comparar corridas sobre versiones distintas del golden deja la Puerta de F09 en ⏳ con «medir sobre la misma versión» (falta una corrida válida) y no en ❌, por la regla de que ❌ es solo para una puerta que una corrida muestra que no se cumple.'
+        - 'F04: menos de 50 ejemplos anotados por ambos o desacuerdos sin regla en la guía también dan ❌. La propuesta para mejorar la guía toma los 3 pares con más desacuerdos de la corrida.'
+        - 'F08: reproducible quiere decir que la corrida trae su semilla; la época debe elegirse por loss_validacion, y si se eligió por test o golden la puerta queda en ❌.'
+        - 'F11 y F12 (CVA-C12): implementé un orquestador secuencial mínimo y un contrato de campos tipados (string, number, bool, list, map). La métrica propia de cada agente es su acierto en el campo que produce, frente a lo esperado en el golden. La receta deja fuera elegir el framework de agentes, pero el escenario necesita algo que correr.'
+        - 'F13 y CVA-C13 (salidas): la convención de nombres la decide salidas.md, que la receta no describe; usé <id>.json con el resultado y <id>.meta.json con la metadata, con ids [a-z0-9_-]. Una salida bajo el umbral no se entrega hasta que una persona la revisa.'
+        - 'Producción (invariante): PuedeIrAProduccion exige F09 en ✅ y una corrida de F14 con la regresión pasada sobre el golden vigente.'
+        - 'Paso 4 y CVA-C16: los niveles inicial, aprendiz y experto cambian solo el texto; las puertas no leen el nivel ni el modo. Solo hay un modo (copiloto).'
+        - Volver a medir una fase ya aprobada con otra corrida deja la Puerta en ✅ hasta que se vuelva a marcar; volver a medir una Puerta en ❌ la devuelve a ⏳.
+        - 'Endurecer o relajar una puerta: lo implementé para kappa_min, ejemplos_doble_min, revisores_golden_min y margen_drift. Endurecer lo puede registrar el tutor; relajar exige una persona y su motivo.'
+        - 'Punto de entrada: inicio deja las 14 fases en ⏳ y nivel 0. En curso y cierre aplican lo mismo y después se llama a Diagnosticar; cierre no tiene un comportamiento propio porque la receta no lo describe.'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        comprension: juego
+        datos_personales: "no"
+        entrada: cierre
+        kappa_minimo: "0.7"
+        modo: tutor
+        nivel: inicial
+        registro: archivo
+        tipo_tarea: generacion
+        tolerancia_drift: "0.05"
+      escenarios:
+        - CVA-C01
+        - CVA-C02
+        - CVA-C03
+        - CVA-C04
+        - CVA-C05
+        - CVA-C06
+        - CVA-C07
+        - CVA-C08
+        - CVA-C09
+        - CVA-C10
+        - CVA-C11
+        - CVA-C12
+        - CVA-C13
+        - CVA-C14
+        - CVA-C15
+        - CVA-C16
+        - CVA-C17
+        - CVA-C18
+        - CVA-C19
+        - CVA-C20
+        - CVA-D01
+        - CVA-D02
+        - CVA-D03
+        - CVA-D04
+        - CVA-D05
+        - CVA-D06
+        - CVA-D07
+        - CVA-M01
+        - CVA-J01
+      lenguaje: JavaScript (Node 26, solo node:test y node:assert, sin dependencias de npm)
+      comando: node --test
+      resultado: pruebas ✅ · escenarios con prueba 29/29
+      supuestos:
+        - 'General: Node no trae YAML; escribí un subconjunto propio (src/yaml.js: mapas y listas en bloque, cadenas entre comillas dobles, números, booleanos, null) para plan.yaml, bitacora.yaml, puntaje.yaml, los diagnósticos y referencias/fases.yaml.'
+        - 'Arquitectura: referencias/fases.yaml no venía en la carpeta; lo escribí yo con las 14 fases (artefacto, señales, puerta, dependencias), más el concepto, la analogía para nivel inicial, el término de la industria, una pregunta de opción múltiple por fase y los patrones (regex de ruta/contenido) con que el diagnóstico busca señales.'
+        - 'registro → archivo: no se escribe estado.yaml; el estado y el nivel viven solo en .qdd/project/tutor/plan.yaml.'
+        - 'Arquitectura: ubiqué todo lo del tutor en .qdd/project/tutor/ (plan.yaml, bitacora.yaml, diagnostico.md, diagnosticos/NNNN.yaml con cada diagnóstico guardado, puntaje.yaml y plantillas/); los artefactos de las fases van donde la persona diga dentro del proyecto.'
+        - 'entrada → cierre: «acompaña solo si se lo piden» lo interpreté como que el ciclo del tutor exige, además de diagnostico.md, un pedido de acompañamiento firmado por una persona (pedirAcompanamiento); esa entrada usa fase «todas».'
+        - 'Corridas: la receta deja formato y lugar al proyecto; las leo como objetos (en el diagnóstico, cualquier .json del repositorio con fase FNN y metricas). Exijo versión del golden en F05, F06, F09, F11 y F14 o si la corrida declara usa_golden, y semilla solo si declara azar: true.'
+        - 'Puertas: traduje cada puerta a claves que la corrida debe traer en metricas (p. ej. F04 kappa, n_ambos, desacuerdos_sin_regla; F14 regresion_pasada, tablero_activo, alertas_activas, rollback_probado). Clave ausente → ⏳ con lo que falta; presente y no cumple → ❌. En las puertas documentales (F01, F02, F07, F13) el script del proyecto informa valida: true/false.'
+        - 'F01 con datos_personales → no: la corrida que valida problema.md debe traer sin_datos_personales_explicado: true.'
+        - 'F06: «versión vigente del golden» es la version_golden de la última corrida medida de F05.'
+        - 'F09: cumplir el KPI es inclusivo (≥ meta si es mejor más alta, ≤ si más baja); superar al baseline es estricto, como dice la receta. Comparar golden distintos deja la puerta en ⏳ pidiendo medir los dos sobre la misma versión (no en ❌).'
+        - 'F10: para tener «la cobertura, el error y el ECE antes y después de calibrar» pedí dos curvas en la corrida (curva_antes sin calibrar y curva calibrada) y apliqué la misma regla a cada una; el umbral adoptado sale de la curva calibrada.'
+        - 'Orden del ciclo: hacer y medir exigen haber explicado; marcar exige medición y artefacto. No exijo artefacto antes de medir porque umbral.md y evaluacion_vN.md contienen resultados de la medición.'
+        - 'Paso 10 frente al invariante del Paso 5: el tutor redacta umbral.md solo si la persona lo intentó o pidió ayuda.'
+        - 'Concepto: con comprension → juego siempre se comprueba; «se entendió» es acertar todas las preguntas de la fase; si no, Concepto queda ⏳ con «volver a explicar» y hay que explicar de nuevo antes de otra comprobación.'
+        - 'Juego: 10 XP por acierto y el logro «Robot Archivador de FNN» al acertar todo; el puntaje vive en puntaje.yaml, aparte del plan.'
+        - 'nivel: la variante solo define «inicial»; los textos de «aprendiz» y «experto» que pide CVA-C16 los inventé yo (concepto más término; término más concepto).'
+        - «Con avance» lo definí como tener Artefacto, Medición o Puerta en ✅ (Concepto no cuenta).
+        - 'Fuga: el tutor no compara hashes; lee metricas.fugas de una corrida de F05 (golden.buscarFugas es la herramienta para el script del proyecto). Al medirla, F05 pasa a ❌ en el acto y las fases con avance que dependen de F05 vuelven a ⏳ con su reapertura, aunque la regla de propagación de la receta habla de reabrir, no de ❌.'
+        - Un ❌ en otras fases (p. ej. F09) no hace volver a ⏳ a sus dependientes; solo propagan la reapertura, la fuga y el drift.
+        - Una corrida nueva devuelve la Puerta a ⏳ aunque estuviera en ✅, porque la aprobación era de otra corrida; la receta solo lo dice para una puerta en ❌.
+        - La aprobación exige que la evaluación «cumple» sea de la corrida vigente. Si una dependencia no está en ✅ o «—», queda una entrada de puerta con resultado «bloqueada» que nombra lo que falta, sin cambiar el estado.
+        - Pedir marcar sin una medición válida no deja entrada (así la marca siempre va después de medir); devuelve qué corrida falta. Una métrica escrita a mano deja una entrada de medición «rechazada» sin efectos.
+        - Reabrir devuelve a ⏳ también el Artefacto aunque el archivo no cambie, así que hay que registrarlo de nuevo.
+        - 'Diagnóstico, nivel 1: señales por regex o la entrevista dice que existe. Nivel 2: hay artefacto o se encontró una métrica (aunque no se pueda reproducir). Nivel 3: artefacto más una corrida reproducible en que la puerta se cumple. Nivel 4: lo mismo con una corrida que declara automatica: true y alerta: true. Nivel 0: la entrevista dice no_existe y no hay evidencia. Si no, «?». La detección de señales es heurística.'
+        - 'Diagnóstico: para el riesgo cuento las dependientes transitivas; la receta no define «impacto», así que lo informo como la lista de esas fases. Esfuerzo = 3 − nivel; no se calcula para «?».'
+        - 'Diagnóstico: las 3 brechas de mayor riesgo salen solo de fases con nivel numérico bajo 3, con empate por orden de fase; las fases en nivel 3 tienen brecha (llegar a 4) pero no entran a ese ranking.'
+        - 'Diagnóstico: el plan es un orden topológico con prioridad riesgo ÷ esfuerzo, usando dependencias transitivas entre las fases del plan.'
+        - 'Diagnóstico: una fase en «—» sale con «—» en el semáforo (la receta no le da color) y sin brechas.'
+        - 'Diagnóstico repetido: solo sube Artefacto o Medición si estaban en ⏳; nunca las baja ni toca Puerta o Concepto. Con nivel 3 o más deja la evaluación «cumple» con esa corrida, para que la persona pueda aprobar. El nivel solo cambia con un diagnóstico; el ciclo no lo recalcula.'
+        - 'Diagnóstico: deja una entrada de tipo diagnóstico por fase.'
+        - 'Diagnóstico: cada brecha nombra su riesgo y cada fase trae una recomendación (texto según el nivel); el énfasis de cierre en F05, F10 y F14 queda como sección aparte.'
+        - 'Bitácora: cada entrada lleva sus efectos sobre las etapas y el nivel. «Coherente» significa que al reproducir los efectos se obtiene plan.yaml y que cada ✅, ❌, «—» y reapertura tiene su entrada. Una corrección es del mismo tipo que la entrada corregida y la cita (la lista de tipos no tiene «corrección»).'
+        - 'Secretos y PII: la bitácora guarda solo campos de una lista blanca, cita las corridas por id y los ejemplos por ruta y sha256, y rechaza textos con credenciales (sk-, ghp_, AKIA, password=), correos, RUT o teléfonos +56. Un nombre propio no se detecta por patrón: se protege porque el contenido de un ejemplo nunca se copia.'
+        - 'Contrato de estado: un subconjunto propio de JSON Schema (type, required, properties, additionalProperties, items, enum, minimum, maximum); el orquestador es una función (estado, paso) que devuelve el nombre de un agente o null.'
+        - 'Trazabilidad: la metadata va en <nombre>.meta.yaml junto a <nombre>.txt; la convención de nombres por defecto es [a-z0-9_-]. Toda salida exige versión de checkpoint aunque no se entrene (p. ej. «no-aplica-few-shot»).'
+        - 'Drift: es drift si la tasa es estrictamente mayor que el error del punto elegido en F10 + 0.05 (no el error tolerado); ese punto se fija cuando se marca F10, sin esperar su aprobación. La medición de drift no cambia las etapas de F14; F14 vuelve a ⏳ solo si tenía avance (por depender de F03).'
+        - 'Endurecer o relajar: solo la puerta de F04 tiene parámetros (κ mínimo y n mínimo); relajarla pide una persona y un porqué.'
+        - 'tipo_tarea → generacion: el KPI usa una métrica de rúbrica; si la corrida dice juez: llm, se exige metricas.kappa_juez ≥ 0.7 (si falta, ⏳; si es menor, ❌).'
+        - 'Golden: el sha256 del conjunto es el sha256 de los sha256 de los ejemplos, ordenados y unidos con saltos de línea; todas las versiones van en un solo golden.manifest.yaml y congelar de nuevo una versión con otro contenido se rechaza.'
+        - 'Pruebas: cada una crea su proyecto temporal en .tmp/ dentro de esta carpeta y lo borra al terminar.'
+      aprobada: true

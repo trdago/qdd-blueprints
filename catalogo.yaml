@@ -3,5 +3,7 @@ blueprints:
   estado-por-frente: estado-por-frente
   consola-claude-code: consola-claude-code
   estado-por-tareas: estado-por-tareas
+  ciclo-de-vida-agentico: ciclo-de-vida-agentico
 paquetes:
   base: [estado-por-tareas, consola-claude-code]
+  ia: [estado-por-tareas, ciclo-de-vida-agentico]

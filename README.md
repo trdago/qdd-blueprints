@@ -8,6 +8,7 @@ conformidad) de módulos que se reutilizan en todos los proyectos. Cualquiera pu
 |---|---|
 | [`estado-por-tareas`](estado-por-tareas/blueprint.yaml) | Reporte de avance en una tabla de tareas × etapas con reglas de evidencia auditables y, si lo quieres, la tarea en curso: «● running» con un latido sutil en el panel, que se apaga solo si nada late. Reemplaza a `estado-por-frente`. |
 | [`consola-claude-code`](consola-claude-code/blueprint.yaml) | Autocompactación, modelo y esfuerzo por defecto, barra de estado (proyecto · modelo · contexto · 5h · semana) y, con `consola_qdd`, panel de estado con acciones y con los comandos que la IA deja para ti (un clic y «s  Sí»). Referencia en `referencias/`. |
+| [`ciclo-de-vida-agentico`](ciclo-de-vida-agentico/blueprint.yaml) | Las 14 fases para construir un sistema agéntico con modelos entrenados o ajustados (del problema y su KPI al golden set, el umbral y la producción), con un tutor que explica, mide con números reales y marca cada fase solo con evidencia y una persona que aprueba. Si entra a un proyecto en curso, primero lo diagnostica: nivel de madurez por fase, qué está bien, qué falta y qué mejorar primero. Viene en el paquete `ia` junto a `estado-por-tareas`. |
 | [`estado-por-frente`](estado-por-frente/blueprint.yaml) | *Reemplazado por `estado-por-tareas`.* Se mantiene para los proyectos que aún no migran: con QDD ≥ 2.8.0, `qdd blueprint add estado-por-tareas` los migra conservando su módulo y sus respuestas. |
 
 ## Usarlos
