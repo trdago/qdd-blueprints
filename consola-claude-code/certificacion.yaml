@@ -1,0 +1,117 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: consola-claude-code@8.0.0
+huella: 3e2d974df722b2e15ab7b1876c261cfbfeadf1d62b563b35b02ed5e589518196
+fecha: 2026-11-01 14:24
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        barra: completa
+        consola_qdd: "no"
+        esfuerzo: high
+        modelo: opus
+        ventana_compactacion: 400k
+      escenarios:
+        - CCC-C01
+        - CCC-C02
+        - CCC-C03
+        - CCC-C04
+        - CCC-C05
+        - CCC-C07
+      lenguaje: python
+      comando: python3 -m unittest discover -s tests -v
+      resultado: pruebas ✅ · escenarios con prueba 6/6
+      supuestos:
+        - 'Arquitectura: el script de barra es referencias/statusline.py (Python, biblioteca estándar) en vez de statusline.sh con jq y date'
+        - 'Arquitectura: ~/.claude/settings.json se construye como usuario/settings.json de esta carpeta (lo genera configuracion.py); nunca se toca ~/.claude'
+        - 'Arquitectura: campos del JSON de la consola: model.display_name (o model.id), workspace.project_dir, workspace.current_dir, cwd, context_window.used_percentage, rate_limits.five_hour y rate_limits.seven_day con used_percentage y resets_at'
+        - 'Arquitectura: el ancho se lee de CONSOLA_COLUMNAS si existe (vacío = desconocido) y si no del tamaño de /dev/tty (ioctl, equivalente a stty size)'
+        - 'Modo de la IA: archivo local de texto plano (primera línea) en CONSOLA_MODO_ARCHIVO o $XDG_STATE_HOME/qdd/consola/modo; se traducen default, acceptEdits, plan, auto, bypassPermissions y dontAsk'
+        - 'Modelo: la clave de modelSettings es el alias «opus», igual que model'
+        - 'Carpeta: si no llega project_dir se usa current_dir y luego cwd del JSON (no el directorio del proceso)'
+        - 'Porcentajes: se redondean a entero con la mitad hacia arriba; valores negativos, NaN o no numéricos se omiten'
+        - 'Renovación: un ISO sin zona se toma como UTC; la hora se muestra en la zona local del sistema'
+        - 'Días: abreviaturas lun, mar, mié, jue, vie, sáb, dom (con tilde)'
+        - 'Segmento de recursos (D/G/R/C): no se construye; la decisión barra=completa y CCC-C01 piden solo 3 líneas'
+        - 'Relleno: siempre empieza con U+2800 y sigue con espacios; una línea de la derecha que no cabe ni sola se emite sin alinear para que la consola la corte'
+        - 'CCC-C07 angosta: si una línea de la derecha no cabe junto a la izquierda, baja y se empareja con la siguiente línea izquierda que la admita'
+        - 'CCC-C05: la compactación la hace la consola; se prueba la configuración generada y un modelo simulado del contrato dentro de las pruebas'
+        - 'Credenciales: la barra solo muestra modelo, modo, nombre de carpeta y porcentajes, y quita caracteres de control y secuencias ANSI'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        barra: minima
+        consola_qdd: si
+        esfuerzo: xhigh
+        modelo: sonnet
+        recursos: si
+        ventana_compactacion: 200k
+      escenarios:
+        - CCC-C01
+        - CCC-C02
+        - CCC-C03
+        - CCC-C04
+        - CCC-C05
+        - CCC-C07
+        - CCC-C06
+        - CCC-C08
+        - CCC-C09
+        - CCC-C10
+        - CCC-C11
+        - CCC-C12
+        - CCC-C13
+        - CCC-C17
+        - CCC-C18
+        - CCC-C19
+        - CCC-C20
+        - CCC-C21
+        - CCC-C22
+        - CCC-C23
+        - CCC-C24
+        - CCC-C25
+        - CCC-C27
+        - CCC-C28
+        - CCC-C29
+        - CCC-C26
+        - CCC-C14
+        - CCC-C15
+        - CCC-C16
+      lenguaje: go
+      comando: go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 29/29
+      supuestos:
+        - 'Arquitectura: el script de barra (statusline.sh con jq y date) se hizo en Go (cmd/barra), sin jq'
+        - 'Arquitectura: la CLI qdd se simula en proceso (paquete qdd); el panel la usa por una interfaz equivalente a ''panel --json'' y ''accion <id>'''
+        - 'JSON de la consola: model.display_name/id, workspace.project_dir/current_dir, cwd, context_window.used_percentage y rate_limits.five_hour/seven_day con used_percentage y resets_at'
+        - 'CCC-C03: un resets_at numérico mayor que 1e12 son milisegundos; un ISO sin zona se toma como UTC'
+        - 'Barra: la hora de renovación va en la zona local del equipo'
+        - 'Barra: entre izquierda y derecha va al menos una columna de relleno (U+2800 y luego espacios)'
+        - 'barra minima: solo la 1.ª línea (modelo · modo y contexto), sin carpeta ni tramos; el segmento de recursos igual va como última línea'
+        - 'CCC-C07: sin ancho, debajo van en orden la carpeta, 5h, semana y recursos'
+        - 'Ancho de la terminal: ''stty size'' sobre /dev/tty; si falla, se trata como sin ancho'
+        - 'CCC-C06: el modo lo anota un hook UserPromptSubmit (''qdd consola anotar'') en un modo.json local con su hora; un modo desconocido no se muestra'
+        - 'Modo: default es normal, acceptEdits es acepta ediciones, plan, auto, bypassPermissions es sin permisos; una hora futura de más de 1 min se ignora'
+        - 'estado.yaml: se lee y escribe en el subconjunto JSON de YAML (solo biblioteca estándar)'
+        - 'Fichas: .qdd/modules/<id>.json con estado borrador o aprobada'
+        - 'Pedidos, turno y modo: se guardan en la carpeta local de qdd, fuera del proyecto'
+        - 'CCC-C24: la tarea sigue cambiando si cambió en un turno (mensaje de la persona) posterior al del pedido'
+        - 'Pedidos: teclas a, b, d, e… sin las del panel (c l n o s u x); un pedido conserva su tecla mientras siga en la cola'
+        - 'CCC-C19: «x  Descartar» es una acción aparte (descartar_pedido) que qdd ofrece con cada pedido; la x es el segundo paso'
+        - 'CCC-C13: «4 de 9 tareas» son mostradas de pendientes; esperan y fallan cuentan tareas por su peor etapa'
+        - 'Peor etapa: ❌ > ⏳ > pendiente > ✅; una tarea cuya peor etapa es pendiente va sin color'
+        - 'Tarea terminada: estado terminada o todas sus etapas ✅; las más nuevas se ordenan por fecha de creación'
+        - 'Panel: la cabecera usa la hora del panel al dibujar; «● running» alterna negrita y atenuado en cada lectura'
+        - 'CCC-C27: el foco va primero, no se muestran objetivos sin tareas visibles, el prefijo es «└─ » por nivel de dependencia y se espera a la primera dependencia pendiente'
+        - 'CCC-C22: el motivo del descarte es fijo («descartada desde el panel») porque el panel solo pasa ids'
+        - 'Auditar: simulado como revisión del estado y las fichas que deja .qdd/audit/ultimo.json'
+        - 'CCC-C20: el foco es un campo del panel; abrirse solo no lo cambia y /tareas sí'
+        - 'CCC-C08: la instalación se simula con un marketplace local en la carpeta de qdd y una copia en <home>/.claude/plugins/qdd-tareas@qdd/plugin.json'
+        - 'CCC-C08: barra propia es cualquier statusLine que no sea ''qdd consola statusline…'' ni la de la receta; ReemplazarBarra la cambia a pedido'
+        - 'CCC-C09: doctor --fix vuelve a aplicar activar con las opciones que lee de la barra actual'
+        - 'CCC-C23: OpenCode se detecta por <home>/.config/opencode; el panel es plugins/qdd-tareas.js en la lista plugin de tui.json; la API del plugin (sidebar.render) es supuesta'
+        - 'CCC-C05: la autocompactación se simula con un resumen de 2000 tokens que conserva la tarea en curso'
+        - 'CCC-C14: D por statfs, R por /proc/meminfo, C por /proc/stat, G por nvidia-smi y /sys/class/drm (gpu_busy_percent); CPU previa y caché de GPU en un archivo local'
+        - 'CCC-C16: una consulta a nvidia-smi que pasa de 300 ms cuenta como consulta y deja la última lectura (o ninguna G)'
+        - 'CCC-C25: el mensaje se acorta en este orden: lo citado, el nombre, la etapa y de quién (mínimo 8 caracteres cada uno)'
+        - 'Pruebas: las carpetas temporales se crean dentro de cada paquete (.pruebas) y se borran al terminar'
+      aprobada: true
