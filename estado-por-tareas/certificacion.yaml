@@ -1,0 +1,91 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: estado-por-tareas@1.1.0
+huella: ebac8927164ef9dde92b66dcd3d26d48949be304daaaa091c70adcfb9422221b
+fecha: 2026-10-31 22:02
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        alcance: abiertos
+        cuando: cada-avance
+        destino: respuesta
+        etapas: software
+        formato: markdown
+        requieren_aprobacion: Producción
+      escenarios:
+        - EPF-C01
+        - EPF-C02
+        - EPF-C03
+        - EPF-C04
+        - EPF-C05
+        - EPF-C06
+        - EPF-C07
+        - EPF-C08
+        - EPF-C09
+        - EPT-S01
+      lenguaje: Python 3 (biblioteca estándar, unittest)
+      comando: python3 -m unittest discover -s . -p 'test_*.py' -v
+      resultado: pruebas ✅ · escenarios con prueba 10/10
+      supuestos:
+        - 'Escenarios (todos): Python no admite «-» en un nombre de método; cada prueba lleva el id como test_EPF_C01_… y el id exacto (EPF-C01) en su docstring.'
+        - 'Arquitectura (tarea en curso, pulso, vida, actividad): ningún paso ni escenario la pide y el panel está fuera de alcance; no se construye, solo la revisión de reportes.'
+        - 'Paso 2 / EPF-C03: «qué espera» se da por dicho si la nota tiene texto además del rol; «de quién» exige un rol de la lista (base + los del proyecto), así que un nombre de persona no vale.'
+        - 'Paso 3 / EPF-C06: un ✅ en Producción exige, además de su evidencia, «aprobado por <rol>» con un rol de la lista; un ⏳ en Producción solo sigue las reglas de cualquier ⏳.'
+        - 'Paso 4 / EPF-C04 / EPT-S01: el lector no puede saber si hubo uso real; un ✅ en Validación real se acepta solo si su nota dice «uso real» (además de su evidencia); si no, se rechaza.'
+        - 'Paso 5 / EPF-C05: una tarea que el reporte anterior ya cerró o descartó con motivo (recién cerrada, según alcance → abiertos) puede no figurar en el nuevo sin otro cierre; un cierre sin motivo no vale.'
+        - 'Paso 5 / EPF-C08: la tarea de una afirmación «<tarea> · <etapa>: <estado>» es el texto desde el comienzo de la línea (sin viñeta) o desde el último . ; : , ( « " antes del «·»; tarea y etapa se comparan sin distinguir mayúsculas y solo se compara el estado, no la nota.'
+        - 'Paso 5 / EPF-C07: teléfono = número con prefijo internacional «+» y 8 a 15 dígitos; identificador nacional = RUT (con o sin puntos, guion y dígito verificador, sin validar el dígito); otros identificadores los agrega el proyecto como patrón extra.'
+        - 'Paso 5 / EPF-C07: un token con prefijo conocido cuenta como secreto si el prefijo va seguido de al menos 8 caracteres [A-Za-z0-9_-] (para no marcar palabras como «sk-learn»); para Slack el prefijo es «xox», una letra opcional y «-» (xoxb-, xoxp-, …).'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        alcance: todos
+        cuando: siempre
+        destino: archivo
+        en_curso: solo-agente
+        etapas: modelos
+        formato: mensajeria
+        requieren_aprobacion: todas
+        vida: "600"
+      escenarios:
+        - EPF-C01
+        - EPF-C02
+        - EPF-C03
+        - EPF-C04
+        - EPF-C05
+        - EPF-C06
+        - EPF-C07
+        - EPF-C08
+        - EPF-C09
+        - EPT-M01
+        - EPF-A01
+        - EPT-C01
+        - EPT-C02
+        - EPT-C03
+        - EPT-C05
+        - EPT-C06
+        - EPT-C07
+        - EPT-C08
+        - EPT-C09
+        - EPT-C10
+        - EPT-C11
+        - EPT-C12
+        - EPT-C13
+      lenguaje: Go (1.24, solo biblioteca estándar)
+      comando: go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 23/23
+      supuestos:
+        - 'Paso 1 / EPF-C01: la cabecera de la tabla debe traer exactamente las etapas elegidas (Datos · Entreno · Puerta · Producción · Validación real), en ese orden; si no, el reporte no vale.'
+        - 'Paso 2 / EPF-C03: «qué espera y de quién» se comprueba así: la nota nombra un rol de la lista (sin distinguir mayúsculas; «del CI» cuenta como «el CI») y además trae al menos otra palabra.'
+        - 'Paso 3 / EPF-C06: «aprobado por <rol>» solo vale con un rol de la lista (base más los del proyecto), igual que el «de quién» de un ⏳; nunca con el nombre de alguien.'
+        - 'Paso 3 / EPF-C04: la receta no dice cómo se ve un «uso real observado». Validación real en ✅ exige Producción en ✅ y una evidencia propia, es decir, que no sea solo la del despliegue (por ejemplo, una corrida).'
+        - 'Paso 4 / EPT-M01: «la celda dice que espera la Puerta» se cumple si la nota de Producción nombra la etapa «Puerta» (sin distinguir mayúsculas), sea ⏳, ❌ o —.'
+        - 'Paso 5 / EPF-C05, EPF-C08: las afirmaciones «<tarea> · <etapa>: <estado>» y los cierres «<tarea>: cerrada|descartada — <motivo>» solo se reconocen al comienzo de una línea del texto (puede ir tras una viñeta), con raya «—» y un motivo no vacío.'
+        - 'Paso 5 / EPF-C07: la receta nombra las categorías pero no sus formatos. Teléfono = internacional con «+» o tres grupos de cifras separados; RUT = con dígito verificador tras guion, con puntos o sin ellos; clave privada = cabecera PEM «BEGIN … PRIVATE KEY»; token = prefijo conocido seguido de 6 caracteres o más. Los otros identificadores nacionales quedan como patrones que agrega el proyecto.'
+        - 'Paso 6 / EPF-A01: la receta no fija el formato de estado.yaml. Se usa «etapas» (lista) y «tareas» (tarea → celdas con etapa, estado y nota), con cadenas entre comillas dobles.'
+        - 'Paso 7 / EPT-C01, EPT-C02: las tareas abiertas son las filas de .qdd/project/estado.yaml (una tarea cerrada o descartada sale de la tabla). La actividad es un JSON en <carpeta central>/actividad/<hash del proyecto>.json, y se rechaza una carpeta central que quede dentro del proyecto.'
+        - 'Paso 7 / EPT-C02: un pulso cuyo «quién» trae credenciales o datos personales (los patrones de EPF-C07) es un error y no se escribe nada.'
+        - 'Paso 7 / EPT-C03: un pulso sin tarea late la última activada entre las que siguen en curso. Un pulso con tarea que la enciende, o una reactivación, la deja como la última activada.'
+        - 'Paso 9 / EPT-C07, EPT-C08, EPT-C09: el panel muestra las N más nuevas y después las tareas en curso que falten, por orden de activación. El ● alterna según el segundo del reloj (par = brillante, impar = tenue), así todos los paneles van sincronizados. La primera lectura no destella. Los estilos son nombres abstractos (tenue, brillante, acento, atenuado), porque el dibujo de cada consola queda fuera del alcance.'
+        - 'Paso 10 / EPT-C10, EPT-C12: dentro del tope de 5 s el pulso se descarta, sin envío diferido. El pulso lleva la hora en que corrió la herramienta, y uno que llega tarde nunca retrocede el último registrado. La herramienta de tareas (subagente) se reconoce por el nombre «task», sin distinguir mayúsculas.'
+      aprobada: true

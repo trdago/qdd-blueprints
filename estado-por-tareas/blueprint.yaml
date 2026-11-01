@@ -10,9 +10,18 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 1.1.0
+version: 2.0.0
+requiere_qdd: 2.8.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
+alcance:
+  incluye:
+    - "La tabla de tareas × etapas con cuatro estados y sus reglas de evidencia"
+    - "La revisión automática de que un reporte cumple las reglas"
+  excluye:
+    - "Cómo dibuja el panel cada consola (eso es de consola-claude-code y de cada panel)"
+    - "Asignar tareas a personas o estimar plazos"
+    - "Notificaciones"
 descripcion: >
   Reporte de avance en una tabla de tareas (filas) por etapas (columnas), con un estado por celda y reglas de evidencia
   que permiten auditarlo, retomarlo sin perder trabajo y agregarlo con el de otros proyectos. Con la tabla en archivo,
@@ -42,11 +51,36 @@ vocabulario:
   - termino: fuente
     definicion: "De dónde viene un pulso, una de tres: agente, subagente o comando."
   - termino: vida
-    definicion: Cuánto sigue en curso una tarea sin pulsos antes de apagarse sola (120 s).
+    definicion: Cuánto sigue en curso una tarea sin pulsos antes de apagarse sola; la elige cada proyecto.
   - termino: actividad
     definicion: >
       El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
       de QDD), no es estado y no se commitea.
+
+parametros:
+  - id: requieren_aprobacion
+    pregunta: ¿Qué etapas requieren una aprobación antes de pasar a ✅?
+    ayuda: Una o varias de las etapas elegidas, separadas por coma, o «todas».
+    tipo: texto
+    por_defecto: Producción
+    ejemplos: ["Producción", "todas"]
+  - id: vida
+    si: {en_curso: [todos, solo-agente]}
+    pregunta: ¿Cuántos segundos sigue en curso una tarea sin pulsos antes de apagarse sola?
+    ayuda: Más larga, si el proyecto tiene builds o pruebas que corren mucho rato sin dar señales.
+    tipo: numero
+    por_defecto: "120"
+    ejemplos: ["120", "600"]
+constantes:
+  - id: largo_commit
+    valor: 7 a 40 caracteres hexadecimales
+    por_que: git abrevia desde 7 y el hash completo tiene 40; menos se confunde con un número y más no es un commit
+  - id: tope_pulso
+    valor: 5 s
+    por_que: más seguido carga la CLI con un proceso por herramienta y el panel no se ve mejor
+  - id: latido
+    valor: 1 s
+    por_que: se nota que está vivo sin distraer; más rápido molesta y más lento parece colgado
 
 preguntas:
   - id: etapas
@@ -64,7 +98,7 @@ preguntas:
             cuando: se reporta
             entonces: Validación real queda ⏳ (qué uso falta ver y de quién) o ❌, nunca ✅
       - valor: modelos
-        descripcion: Datos · Entreno · Puerta · Producción (para modelos que pasan una puerta de calidad antes de producción).
+        descripcion: Datos · Entreno · Puerta · Producción · Validación real (para modelos que pasan una puerta de calidad antes de producción).
         invariantes: ["Producción no se marca ✅ sin la Puerta en ✅ con su evidencia"]
         conformidad:
           - id: EPT-M01
@@ -73,10 +107,10 @@ preguntas:
             cuando: se reporta Producción
             entonces: Producción no pasa a ✅ y la celda dice que espera la Puerta
       - valor: sin-codigo
-        descripcion: Definición · Ejecución · Verificación · Cierre (proyectos sin código).
+        descripcion: Definición · Ejecución · Verificación · Cierre (proyectos sin código); Verificación cumple el rol de Validación real.
       - valor: propias
-        descripcion: Etapas definidas por el proyecto.
-        depende_de: ["La lista de etapas queda escrita en la ficha del módulo"]
+        descripcion: Etapas definidas por el proyecto, que nombra cuál de ellas cumple el rol de Validación real.
+        depende_de: ["La lista de etapas, y cuál cumple el rol de Validación real, queda escrita en la ficha del módulo"]
   - id: cuando
     pregunta: ¿Cuándo se entrega la tabla?
     por_defecto: cada-avance
@@ -132,8 +166,13 @@ preguntas:
         descripcion: >
           Sí. Laten las herramientas del agente, sus subagentes y los comandos externos que llaman a
           'qdd estado pulso <tarea> --fuente comando' (scripts, tests, deploys, workers).
+        alcance: {incluye: ["La tarea en curso, que late con lo que corre para ella y se apaga sola"]}
         decisiones:
           - "Los scripts largos del proyecto (tests, deploys, workers) llaman a 'qdd estado pulso <tarea> --fuente comando'"
+          - "La tarea en curso la declara el agente al empezar a trabajarla; puede haber varias (sesiones distintas)"
+          - "Un pulso sin tarea late la última activada; un pulso con tarea la enciende si estaba apagada"
+          - "La vida es de {{vida}} s sin pulsos; el panel envía como mucho un pulso cada {{tope_pulso}}"
+          - "Se ve como «● running»: el ● alterna tenue y brillante cada {{latido}} y destella en acento durante un {{latido}} con cada pulso"
         invariantes: &en_curso_invariantes
           - "La actividad no es estado: no cambia la tabla y no se commitea"
           - "Solo una tarea abierta puede estar en curso; cerrarla o descartarla la apaga"
@@ -142,7 +181,7 @@ preguntas:
           - "Una tarea en curso siempre se ve en el panel, aunque no esté entre las más nuevas"
           - "El latido es sutil: un destello por pulso, sin abrir ni enfocar el panel ni sonar"
           - "La actividad no guarda credenciales ni datos personales: «quién» es una herramienta, no una persona"
-        conformidad: &en_curso_conformidad
+        conformidad:
           - id: EPT-C01
             titulo: El agente declara la tarea en curso
             cuando: el agente activa una tarea abierta
@@ -178,16 +217,16 @@ preguntas:
             titulo: «● running» con latido
             dado: una tarea en curso en el panel
             cuando: pasa el tiempo
-            entonces: dice «running» atenuado y el ● alterna tenue y brillante cada 1 s
+            entonces: dice «running» atenuado y el ● alterna tenue y brillante cada {{latido}}
           - id: EPT-C09
             titulo: Destello con cada pulso
             cuando: el pulso de la tarea cambia entre dos lecturas
-            entonces: el ● destella en el color de acento por un instante y vuelve a su latido
+            entonces: el ● destella en el color de acento durante un {{latido}} y vuelve a su latido
           - id: EPT-C10
             titulo: Las herramientas del agente laten sin demorarse
             dado: una tarea en curso
             cuando: el agente ejecuta herramientas o lanza un subagente
-            entonces: la herramienta sigue sin esperar, el panel destella y la CLI recibe como mucho un pulso cada 5 s
+            entonces: la herramienta sigue sin esperar, el panel destella y la CLI recibe como mucho un pulso cada {{tope_pulso}}
           - id: EPT-C11
             titulo: Lo mismo en un panel de solo lectura
             cuando: otro panel (p. ej. OpenCode) lee el mismo JSON
@@ -195,13 +234,131 @@ preguntas:
           - id: EPT-C12
             titulo: El agente de otro panel también late
             cuando: el agente de ese panel ejecuta una herramienta (subagente si es la de tareas)
-            entonces: deja su pulso con el mismo tope de 5 s
+            entonces: deja su pulso con el mismo tope de {{tope_pulso}}
       - valor: solo-agente
         descripcion: Sí, pero solo laten las herramientas del agente y sus subagentes; los comandos externos no.
+        alcance: {incluye: ["La tarea en curso, que late con lo que corre para ella y se apaga sola"]}
+        decisiones:
+          - "La tarea en curso la declara el agente al empezar a trabajarla; puede haber varias (sesiones distintas)"
+          - "Un pulso sin tarea late la última activada; un pulso con tarea la enciende si estaba apagada"
+          - "La vida es de {{vida}} s sin pulsos; el panel envía como mucho un pulso cada {{tope_pulso}}"
+          - "Se ve como «● running»: el ● alterna tenue y brillante cada {{latido}} y destella en acento durante un {{latido}} con cada pulso"
         invariantes: *en_curso_invariantes
-        conformidad: *en_curso_conformidad
+        conformidad:
+          - id: EPT-C01
+            titulo: El agente declara la tarea en curso
+            cuando: el agente activa una tarea abierta
+            entonces: queda en curso en la actividad y la tabla de estado no cambia
+          - id: EPT-C02
+            titulo: Solo tareas abiertas que existen
+            cuando: se activa o se pulsa una tarea que no existe, o con una fuente que no es agente, subagente ni comando
+            entonces: es un error y no se escribe nada
+          - id: EPT-C03
+            titulo: Un pulso sin tarea late la última activada
+            dado: dos tareas activadas
+            cuando: llega un pulso sin tarea
+            entonces: late la última activada, con su hora y su fuente; sin tarea en curso no hace nada y no falla
+          - id: EPT-C05
+            titulo: Se apaga sola
+            dado: una tarea en curso
+            cuando: pasa la vida sin pulsos
+            entonces: deja de estar en curso y un pulso sin tarea no la revive
+          - id: EPT-C06
+            titulo: Terminar, cerrar o descartar la apagan
+            cuando: se termina, se cierra o se descarta una tarea en curso
+            entonces: deja de estar en curso; terminar una que no lo estaba no es un error
+          - id: EPT-C07
+            titulo: La tarea en curso siempre se ve
+            dado: una tarea en curso que no está entre las más nuevas
+            cuando: se arma el panel
+            entonces: se ve con su actividad, las demás no la llevan y «actual» es la última activada
+          - id: EPT-C08
+            titulo: «● running» con latido
+            dado: una tarea en curso en el panel
+            cuando: pasa el tiempo
+            entonces: dice «running» atenuado y el ● alterna tenue y brillante cada {{latido}}
+          - id: EPT-C09
+            titulo: Destello con cada pulso
+            cuando: el pulso de la tarea cambia entre dos lecturas
+            entonces: el ● destella en el color de acento durante un {{latido}} y vuelve a su latido
+          - id: EPT-C10
+            titulo: Las herramientas del agente laten sin demorarse
+            dado: una tarea en curso
+            cuando: el agente ejecuta herramientas o lanza un subagente
+            entonces: la herramienta sigue sin esperar, el panel destella y la CLI recibe como mucho un pulso cada {{tope_pulso}}
+          - id: EPT-C11
+            titulo: Lo mismo en un panel de solo lectura
+            cuando: otro panel (p. ej. OpenCode) lee el mismo JSON
+            entonces: muestra «● running», el latido y el destello igual
+          - id: EPT-C12
+            titulo: El agente de otro panel también late
+            cuando: el agente de ese panel ejecuta una herramienta (subagente si es la de tareas)
+            entonces: deja su pulso con el mismo tope de {{tope_pulso}}
+          - id: EPT-C13
+            titulo: Solo laten el agente y sus subagentes
+            cuando: un comando externo deja un pulso
+            entonces: se rechaza como una fuente que esta opción no admite y la actividad no cambia
       - valor: "no"
         descripcion: No. Solo la tabla; el panel no muestra actividad.
+        alcance: {excluye: ["La tarea en curso: ni «● running» ni pulsos"]}
+
+pasos:
+  - id: tabla
+    accion: Armar la tabla de tareas (filas) por las etapas elegidas (columnas), con un estado cerrado por celda (✅ ⏳ ❌ —)
+    produce: una tabla en la que cada celda tiene exactamente un estado
+    verifica: [EPF-C01]
+  - id: evidencia
+    accion: Exigir a cada ✅ su evidencia y a cada ⏳ qué espera y de quién; nombrar cada ❌
+    produce: celdas que un lector automático acepta o rechaza
+    verifica: [EPF-C02, EPF-C03, EPF-C09]
+  - id: honestidad
+    accion: Separar desplegado de validado y dejar en la celda la aprobación que falta, sin avanzar sin ella
+    produce: ninguna etapa en ✅ que no lo esté de verdad
+    verifica: [EPF-C04, EPF-C06]
+  - id: etapas-software
+    si: {etapas: software}
+    accion: Mantener Validación real separada de Producción
+    produce: Validación real en ⏳ o ❌ hasta ver un uso real
+    verifica: [EPT-S01]
+  - id: etapas-modelos
+    si: {etapas: modelos}
+    accion: Poner la Puerta de calidad antes de Producción
+    produce: Producción sin ✅ mientras la Puerta no tenga su ✅ con evidencia
+    verifica: [EPT-M01]
+  - id: reporte
+    accion: Comparar cada reporte con el anterior y con su texto, y revisar que no lleve secretos
+    produce: ninguna tarea desaparece sin cierre o descarte con motivo, el texto coincide con la tabla y no hay datos personales
+    verifica: [EPF-C05, EPF-C07, EPF-C08]
+  - id: archivo
+    si: {destino: archivo}
+    accion: Guardar la misma tabla en .qdd/project/estado.yaml en cada reporte
+    produce: un archivo desde el que otro agente retoma por los ⏳
+    verifica: [EPF-A01]
+  - id: actividad
+    si: {en_curso: [todos, solo-agente]}
+    accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
+    produce: una actividad que se apaga sola tras {{vida}} s sin pulsos, al terminar o al cerrar la tarea
+    verifica: [EPT-C01, EPT-C02, EPT-C03, EPT-C05, EPT-C06]
+  - id: comandos
+    si: {en_curso: todos}
+    accion: Aceptar los pulsos de los comandos externos que trabajan en una tarea
+    produce: la tarea en curso con fuente comando
+    verifica: [EPT-C04]
+  - id: solo-agente
+    si: {en_curso: solo-agente}
+    accion: Rechazar los pulsos con fuente comando
+    produce: una actividad que solo laten el agente y sus subagentes
+    verifica: [EPT-C13]
+  - id: panel
+    si: {en_curso: [todos, solo-agente]}
+    accion: Mostrar la tarea en curso en el panel, aunque no esté entre las más nuevas
+    produce: «● running» que alterna cada {{latido}} y destella con cada pulso, también en un panel de solo lectura
+    verifica: [EPT-C07, EPT-C08, EPT-C09, EPT-C11]
+  - id: pulsos
+    si: {en_curso: [todos, solo-agente]}
+    accion: Hacer latir las herramientas del agente y sus subagentes sin demorarlas
+    produce: como mucho un pulso cada {{tope_pulso}} por panel, sin esperar a la CLI
+    verifica: [EPT-C10, EPT-C12]
 
 ficha:
   nombre: Estado por tareas
@@ -225,19 +382,25 @@ ficha:
     decisiones:
       - "Los estados son cerrados: ✅ ⏳ ❌ —"
       - "La prosa acompaña a la tabla; no la reemplaza"
-      - "La tarea en curso la declara el agente al empezar a trabajarla; puede haber varias (sesiones distintas)"
-      - "Un pulso sin tarea late la última activada; un pulso con tarea la enciende si estaba apagada"
-      - "La vida es de 120 s sin pulsos; el panel envía como mucho un pulso cada 5 s"
-      - "Se ve como «● running»: el ● alterna tenue y brillante cada 1 s y destella en acento con cada pulso"
+      - "La tabla del reporte es su primera tabla: la tarea en la primera columna y una etapa por columna"
+      - "Una celda empieza por su estado y sigue con una nota libre; la «—» es estado solo al comienzo, y otro ✅ ⏳ ❌ en la nota es un segundo estado: la celda no vale"
+      - "La evidencia de un ✅ es un commit (de {{largo_commit}}, con al menos un dígito), una versión semver (con o sin «v»), «n/n pruebas» con las dos cifras iguales y mayores que cero, o «corrida <id>» con al menos un dígito en el id"
+      - "El «de quién» de un ⏳ es un rol de una lista base (la persona, QA, el CI, producción) que el proyecto puede ampliar; nunca el nombre de alguien"
+      - "Un ❌ nombra en su nota lo que falta o falla"
+      - "Requieren aprobación antes de pasar a ✅: {{requieren_aprobacion}}"
+      - "La aprobación dada se escribe «✅ … aprobado por <rol>»; la que falta, «⏳ espera aprobación de <rol>»"
+      - "Un cierre se escribe en el reporte como «<tarea>: cerrada — <motivo>» o «<tarea>: descartada — <motivo>»"
+      - "El texto afirma un estado con «<tarea> · <etapa>: <estado>»; solo esas afirmaciones se comparan con la tabla, y una sobre una tarea o etapa que no está en ella también la contradice"
+      - "Credenciales y datos personales, como mínimo: correos, teléfonos, RUT u otro identificador nacional, tokens con prefijo conocido (sk-, ghp_, AKIA, xox, npm_), claves privadas, «clave=», «token=», «password=» y «Bearer …»; un proyecto puede agregar, nunca quitar"
     invariantes:
       - "Cada celda tiene exactamente un estado"
       - "Un ✅ lleva evidencia: commit, versión, n/n pruebas o id de corrida"
       - "Un ⏳ dice qué espera y de quién"
       - "Una falla conocida se reporta igual como ❌ y se nombra"
-      - "Desplegado no es validado: «✅ v1.2.0 · ⏳ falta ver un uso real»"
+      - "Desplegado no es validado: «Producción ✅ v1.2.0 y Validación real ⏳ espera ver un uso real de la persona»"
       - "Lo que requiere aprobación lo dice en la celda y nunca avanza sin ella"
       - "Una tarea no desaparece en silencio"
-      - "No hay credenciales ni datos personales en la tabla"
+      - "No hay credenciales ni datos personales en el reporte: ni en la tabla ni en el texto"
       - "El texto y la tabla no se contradicen"
 
 conformidad:
@@ -265,15 +428,19 @@ conformidad:
     entonces: el reporte dice que se cerró o se descartó, y por qué
   - id: EPF-C06
     titulo: Aprobación pendiente
-    cuando: una etapa requiere aprobación que aún no existe
+    cuando: una de {{requieren_aprobacion}} requiere aprobación que aún no existe
     entonces: la celda lo dice y la etapa no pasa a ✅
   - id: EPF-C07
     titulo: Sin secretos ni datos personales
-    cuando: se revisa una tabla
-    entonces: no contiene credenciales ni datos personales
+    cuando: se revisa un reporte
+    entonces: ni su tabla ni su texto contienen credenciales o datos personales
   - id: EPF-C08
     titulo: Texto y tabla coinciden
     cuando: el texto del reporte afirma un estado
     entonces: la tabla muestra ese mismo estado
+  - id: EPF-C09
+    titulo: ❌ con su falla nombrada
+    cuando: una celda está en ❌
+    entonces: su nota nombra lo que falta o falla; un ❌ sin nota no vale
 
 referencias: []
