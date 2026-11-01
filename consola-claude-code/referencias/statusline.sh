@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Barra de estado de Claude Code (blueprint consola-claude-code): a la izquierda el modelo; a la derecha, uno por línea y
-# pegados al borde, el % de contexto usado y el uso del plan (5h y semana). Un campo que falta se omite.
+# Barra de estado de Claude Code (blueprint consola-claude-code): a la izquierda el modelo y, debajo, la carpeta del
+# proyecto (solo su nombre); a la derecha, uno por línea y pegados al borde, el % de contexto usado y el uso del plan
+# (5h y semana). Un campo que falta se omite.
 # El modo de la IA no llega en el JSON de la consola: solo lo muestra la barra de QDD (consola_qdd=si).
 input=$(cat)
 model=$(jq -r '.model.display_name // empty' <<<"$input")
+dir=$(jq -r '.workspace.project_dir // .workspace.current_dir // .cwd // empty' <<<"$input")
+carpeta=""
+[ -n "$dir" ] && carpeta="📂 ${dir%/}" && carpeta="📂 ${carpeta##*/}"
 ctx=$(jq -r '.context_window.used_percentage // empty' <<<"$input")
 # Ancho de la terminal de la sesión (la barra corre sin terminal en su salida); 0 si no se sabe.
 cols=$( (stty size </dev/tty) 2>/dev/null | cut -d' ' -f2)
@@ -29,16 +33,23 @@ lista=()
 [ -n "$ctx" ] && lista+=("contexto $(printf '%.0f' "$ctx")%")
 t=$(tramo "5h" "$p5" "$r5" "%H:%M") && [ -n "$t" ] && lista+=("$t")
 t=$(tramo "semana" "$p7" "$r7" "%a %H:%M") && [ -n "$t" ] && lista+=("$t")
-# Primera línea: el modelo y, si cabe a su derecha, el contexto; sin ancho conocido, juntos con «·».
-primera=""
-if [ ${#lista[@]} -gt 0 ] && [ -n "$model" ] && ((cols <= 0)); then
-	primera="$model · ${lista[0]}" && lista=("${lista[@]:1}")
-fi
-if [ -z "$primera" ] && [ ${#lista[@]} -gt 0 ] && [ -n "$model" ] && ((${#model} + 2 + ${#lista[0]} <= util)); then
-	primera="$model$(printf '%*s' $((util - ${#model} - ${#lista[0]})) '')${lista[0]}" && lista=("${lista[@]:1}")
-fi
-[ -z "$primera" ] && primera="$model"
+# Izquierda: el modelo y la carpeta. Cada una va con la siguiente de la lista si caben juntas (sin ancho conocido, con
+# «·»); si no, sola. Lo que queda de la lista va uno por línea a la derecha. 📂 ocupa 2 columnas.
+izq=()
+[ -n "$model" ] && izq+=("$model")
+[ -n "$carpeta" ] && izq+=("$carpeta")
+largo() { local s="$1" n=${#1}; [[ "$s" == *📂* ]] && n=$((n + 1)); echo "$n"; }
 lineas=()
-[ -n "$primera" ] && lineas+=("$primera")
-for l in "${lista[@]}"; do lineas+=("$(derecha "$l")"); done
+while [ ${#izq[@]} -gt 0 ] || [ ${#lista[@]} -gt 0 ]; do
+	if [ ${#izq[@]} -gt 0 ] && [ ${#lista[@]} -gt 0 ] && ((cols <= 0)); then
+		lineas+=("${izq[0]} · ${lista[0]}") && izq=("${izq[@]:1}") && lista=("${lista[@]:1}") && continue
+	fi
+	if [ ${#izq[@]} -gt 0 ] && [ ${#lista[@]} -gt 0 ] && (($(largo "${izq[0]}") + 2 + ${#lista[0]} <= util)); then
+		lineas+=("${izq[0]}$(printf '%*s' $((util - $(largo "${izq[0]}") - ${#lista[0]})) '')${lista[0]}") && izq=("${izq[@]:1}") && lista=("${lista[@]:1}") && continue
+	fi
+	if [ ${#izq[@]} -gt 0 ]; then
+		lineas+=("${izq[0]}") && izq=("${izq[@]:1}") && continue
+	fi
+	lineas+=("$(derecha "${lista[0]}")") && lista=("${lista[@]:1}")
+done
 (IFS=$'\n'; printf '%s' "${lineas[*]}")

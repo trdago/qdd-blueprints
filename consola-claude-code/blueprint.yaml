@@ -9,7 +9,7 @@
 #   qdd modules approve consola-claude-code
 id: consola-claude-code
 nombre: Consola de Claude Code
-version: 8.0.0
+version: 9.0.0
 licencia: Propietaria — uso interno
 descripcion: >
   Autocompactación del contexto, modelo y esfuerzo por defecto, y barra de estado con el modelo y el modo de la IA a la
@@ -128,6 +128,10 @@ preguntas:
           - "qdd doctor revisa el panel y la barra; 'qdd doctor --fix' los repara"
           - "El panel es liviano: una cabecera «Tareas · HH:MM» con la versión de qdd, una línea de resumen en color («4 de 9 tareas · ⏳ 3 esperan · ❌ 1 fallan»), títulos en negrita, texto y detalle atenuado; sin números grandes ni recuadros"
           - "El color sigue al estado: ❌ rojo, ⏳ amarillo, ✅ verde; cada tarea toma el color de su peor etapa"
+          - "Árbol (qdd ≥ 2.8.0, estado-por-tareas con objetivos o dependencias): la tabla dibuja las filas en el orden que entrega qdd, con su prefijo atenuado y «· espera a X» en amarillo atenuado, y las etapas en columnas a la derecha"
+          - "Antes de las tareas de cada objetivo va su cabecera «🎯 <objetivo>» en negrita (el foco en el color de acento, con «· foco») y su estado atenuado; las tareas sin objetivo van al final bajo «🎯 sin objetivo»"
+          - "Pinchar el nombre de una tarea o de un objetivo envía a la conversación la pregunta que trae qdd («¿Cómo vamos con…?»): la IA responde avance, bloqueos y siguiente paso y actualiza el estado"
+          - "«l ↻» vuelve a leer el tablero en el acto, sin esperar a la próxima lectura"
         invariantes:
           - "El panel dibuja lo que entrega 'qdd consola panel --json' y solo pide las acciones que esa salida ofrece; no decide nada por su cuenta"
           - "qdd vuelve a calcular las acciones antes de ejecutar una: un id que no ofrece se rechaza sin ejecutar nada"
@@ -223,6 +227,21 @@ preguntas:
               la conversación recibe el mensaje de qdd para esa etapa (qué espera y de quién, que intente completarla y, si falta
               algo, deje un pedido con la tarea «barra» o pregunte); si la etapa ya no espera, no se envía nada y el panel dice
               por qué
+          - id: CCC-C27
+            titulo: El árbol del tablero
+            dado: qdd entrega objetivos, el foco y tareas con prefijo y «espera a X»
+            cuando: se dibuja el panel
+            entonces: >
+              cada objetivo tiene su cabecera 🎯 (el foco primero, en el color de acento) con su estado, sus tareas debajo con
+              su prefijo y a quién esperan, las etapas a la derecha y las tareas sin objetivo al final bajo «🎯 sin objetivo»
+          - id: CCC-C28
+            titulo: Preguntar cómo vamos
+            cuando: la persona pincha el nombre de una tarea o de un objetivo
+            entonces: la conversación recibe la pregunta que trae qdd para esa fila y el panel dice «→ enviado a la IA»
+          - id: CCC-C29
+            titulo: Volver a leer
+            cuando: la persona pulsa «l ↻»
+            entonces: el panel vuelve a leer 'qdd consola panel --json' en el acto
           - id: CCC-C26
             titulo: Un panel anterior no muestra lo que no conoce
             dado: un qdd que ofrece «atender» y un panel que no lo dibuja
@@ -286,7 +305,8 @@ ficha:
       - "La configuración es de usuario (~/.claude), no del repositorio del proyecto"
       - "La ventana de compactación se fija por modelo en modelSettings"
       - "Días de la semana en español abreviado (lun … dom) y hora de 24 h"
-      - "La barra no muestra la carpeta del proyecto ni el resumen de tareas: los dos están en el panel (consola_qdd=si)"
+      - "Debajo del modelo, a la izquierda, la carpeta del proyecto con solo su nombre («📂 qdd»): en qué proyecto se trabaja; si no llega, la carpeta actual"
+      - "La barra no muestra el resumen de tareas: está en el panel (consola_qdd=si)"
       - "La lista de la derecha termina 6 columnas antes del borde (la consola dibuja la barra con su propio margen y corta con «…» lo que no cabe) y su relleno empieza con un blanco que la consola no borra (U+2800), porque los espacios al inicio de una línea sí los borra"
     invariantes:
       - "La barra no usa la red y solo lee el JSON de la consola; lo que falla no se muestra"
@@ -306,23 +326,22 @@ conformidad:
     dado: el JSON trae proyecto, modelo, contexto 37,6 %, 5h 12,2 % y semana 40 % con sus renovaciones, la IA está en modo auto y la terminal tiene 70 columnas
     cuando: corre el script de la barra
     entonces: >
-      muestra «<modelo> · auto» a la izquierda y «contexto 38%» a la derecha en la primera línea; debajo, pegados a la
-      derecha, «5h 12% ↻ HH:MM» y «semana 40% ↻ <día> HH:MM»; cada línea termina 6 columnas antes del borde y la
-      consola no le quita el relleno
+      1.ª línea: «<modelo> · auto» a la izquierda y «contexto 38%» a la derecha; 2.ª: «📂 <carpeta>» y «5h 12% ↻ HH:MM»;
+      3.ª, a la derecha: «semana 40% ↻ <día> HH:MM»; cada línea termina 6 columnas antes del borde y no pierde el relleno
   - id: CCC-C02
     titulo: Campos ausentes se omiten
     dado: el JSON trae solo proyecto y modelo, y el modo no se conoce
     cuando: corre el script de la barra
-    entonces: muestra solo «<modelo>», sin modo, contexto ni tramos y sin ceros inventados
+    entonces: muestra «<modelo>» y debajo «📂 <carpeta>», sin modo, contexto ni tramos y sin ceros inventados
   - id: CCC-C03
     titulo: Renovación en epoch o ISO
     cuando: resets_at llega como segundos epoch o como fecha ISO 8601
     entonces: la hora de renovación se muestra igual en ambos casos
   - id: CCC-C04
-    titulo: Sin carpeta ni tareas en la barra
-    dado: el proyecto tiene .qdd/project/estado.yaml con tareas abiertas
+    titulo: La carpeta del proyecto, sin tareas
+    dado: el proyecto está en /home/a/proyectos/qdd y tiene .qdd/project/estado.yaml con tareas abiertas
     cuando: corre el script de la barra
-    entonces: la barra no muestra la carpeta ni «◧ N tareas»; el panel los muestra
+    entonces: debajo del modelo dice «📂 qdd» (nunca la ruta completa) y no muestra «◧ N tareas»; el panel las muestra
   - id: CCC-C05
     titulo: Compactación en la ventana elegida
     dado: autoCompactWindow fijado en el modelo por defecto
