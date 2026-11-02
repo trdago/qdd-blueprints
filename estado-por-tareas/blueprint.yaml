@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 3.0.0
+version: 2.1.0
 requiere_qdd: 2.8.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
@@ -64,7 +64,8 @@ vocabulario:
   - termino: ciclo
     definicion: >
       Una lista de etapas con nombre. Las etapas de la tabla son el ciclo «proyecto»; un objetivo puede seguir otro
-      ciclo y sus tareas toman esas etapas.
+      ciclo y sus tareas toman esas etapas. No es el ciclo de dependencias (una dependencia que vuelve a la misma
+      tarea), que no vale.
   - termino: actividad
     definicion: >
       El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
@@ -441,7 +442,7 @@ pasos:
     verifica: [EPT-M01]
   - id: dependencias
     accion: Guardar de qué tareas depende cada una y rechazar la última etapa en ✅ o el cierre mientras una no termine
-    produce: ninguna tarea termina antes que sus dependencias y ninguna dependencia rota o circular
+    produce: ninguna tarea termina antes que sus dependencias y ninguna dependencia rota o en ciclo
     verifica: [EPT-D01, EPT-D02]
   - id: objetivos
     si: {objetivos: si}
@@ -461,7 +462,12 @@ pasos:
     si: {destino: archivo}
     accion: Guardar la misma tabla en .qdd/project/estado.yaml en cada reporte
     produce: un archivo desde el que otro agente retoma por los ⏳, y un JSON del panel con el árbol y la pregunta de cada fila
-    verifica: [EPF-A01, EPT-A02, EPT-A03, EPT-K05]
+    verifica: [EPF-A01, EPT-A02, EPT-A03]
+  - id: panel-ciclos
+    si: {destino: archivo}
+    accion: Llevar al JSON del panel el ciclo de cada fila, con sus etapas y abreviaturas
+    produce: filas con un símbolo por etapa de su ciclo y un panel que nombra cada ciclo bajo su objetivo
+    verifica: [EPT-K05]
   - id: actividad
     si: {en_curso: [todos, solo-agente]}
     accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
@@ -510,7 +516,7 @@ ficha:
     decisiones:
       - "Los estados son cerrados: ✅ ⏳ ❌ —"
       - "La prosa acompaña a la tabla; no la reemplaza"
-      - "La tabla del reporte es su primera tabla: la tarea en la primera columna y una etapa por columna; con ciclos, una tabla por ciclo (la del proyecto primero)"
+      - "La tabla del reporte es su primera tabla: la tarea en la primera columna y una etapa por columna"
       - "Una celda empieza por su estado y sigue con una nota libre; la «—» es estado solo al comienzo, y otro ✅ ⏳ ❌ en la nota es un segundo estado: la celda no vale"
       - "La evidencia de un ✅ es un commit (de {{largo_commit}}, con al menos un dígito), una versión semver (con o sin «v»), «n/n pruebas» con las dos cifras iguales y mayores que cero, o «corrida <id>» con al menos un dígito en el id"
       - "El «de quién» de un ⏳ es un rol de una lista base (la persona, QA, el CI, producción) que el proyecto puede ampliar; nunca el nombre de alguien"
@@ -520,7 +526,7 @@ ficha:
       - "Un cierre se escribe en el reporte como «<tarea>: cerrada — <motivo>» o «<tarea>: descartada — <motivo>»"
       - "El texto afirma un estado con «<tarea> · <etapa>: <estado>»; solo esas afirmaciones se comparan con la tabla, y una sobre una tarea o etapa que no está en ella también la contradice"
       - "Una tarea puede depender de otras (por su id); mientras una no termine, su última etapa que aplica no pasa a ✅ ni se cierra, y la tabla la nombra «<tarea> (espera a X, Y)»"
-      - "Una dependencia que no existe, la de una tarea consigo misma o una circular (que vuelve a la misma tarea) no vale"
+      - "Una dependencia que no existe, la de una tarea consigo misma o una que cierra un ciclo no vale"
       - "Descartar una dependencia no libera a quien la espera: hay que quitarla de sus dependencias"
       - "Credenciales y datos personales, como mínimo: correos, teléfonos, RUT u otro identificador nacional, tokens con prefijo conocido (sk-, ghp_, AKIA, xox, npm_), claves privadas, «clave=», «token=», «password=» y «Bearer …»; un proyecto puede agregar, nunca quitar"
     invariantes:
@@ -534,7 +540,7 @@ ficha:
       - "No hay credenciales ni datos personales en el reporte: ni en la tabla ni en el texto"
       - "El texto y la tabla no se contradicen"
       - "Una tarea no termina antes que sus dependencias"
-      - "Las dependencias no son circulares"
+      - "Las dependencias no hacen ciclos"
 
 conformidad:
   - id: EPF-C01
@@ -572,7 +578,7 @@ conformidad:
     cuando: el texto del reporte afirma un estado
     entonces: la tabla muestra ese mismo estado
   - id: EPT-D01
-    titulo: Una dependencia existe y no es circular
+    titulo: Una dependencia existe y no hace ciclo
     cuando: una tarea depende de una que no está, de sí misma o de una que la espera
     entonces: no vale y no se escribe
   - id: EPT-D02
