@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 2.1.0
+version: 2.2.0
 requiere_qdd: 2.8.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
@@ -70,6 +70,10 @@ vocabulario:
     definicion: >
       El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
       de QDD), no es estado y no se commitea.
+  - termino: id
+    definicion: >
+      La clave fija de una tarea, un objetivo o un ciclo, con la que la nombran las dependencias, los cierres y quien
+      escribe el archivo. El nombre es lo que se lee; el id no cambia.
 
 parametros:
   - id: requieren_aprobacion
@@ -95,6 +99,18 @@ constantes:
   - id: latido
     valor: 1 s
     por_que: se nota que está vivo sin distraer; más rápido molesta y más lento parece colgado
+  - id: largo_id
+    valor: 40 caracteres
+    por_que: cabe en una columna del panel y en un mensaje de error; más largo ya es un nombre
+  - id: palabras_id
+    valor: "4"
+    por_que: distingue una tarea de otra sin repetir el nombre entero; más palabras alargan el id sin aclararlo
+  - id: palabras_vacias
+    valor: de, del, la, el, los, las, en, y, o, e, a, al, con, por, para, un, una, que, se, su, sus, lo, the, of, and, to, in, for, on
+    por_que: no distinguen una tarea de otra; fija para que dos implementaciones den el mismo id al mismo nombre
+  - id: parecido_duplicada
+    valor: 80 %
+    por_que: con menos, dos tareas distintas del mismo tema se toman por la misma; con más, la misma tarea escrita con otro orden o una palabra de más pasa como nueva
 
 preguntas:
   - id: etapas
@@ -236,6 +252,14 @@ preguntas:
           - "El JSON del panel trae el árbol resuelto: las filas en orden (por objetivo si los hay, el foco primero), cada una con su prefijo de dibujo («├─ », «│  └─ »), sus notas «espera a X» y la pregunta para el agente; los paneles solo lo dibujan"
           - "Cada tarea cuelga de su primera dependencia visible del mismo objetivo; sin ella es raíz. Bajo un objetivo las raíces llevan conector; sin objetivos, no"
           - "La pregunta de una tarea es «¿Cómo vamos con «<tarea>»? Avance, bloqueos y siguiente paso; actualiza sus celdas con evidencia.»; la de un objetivo nombra también su criterio"
+          - "Nombrar una tarea, un objetivo o un ciclo nunca lo crea: crear es una operación aparte. Una tarea se crea con su nombre y la herramienta le da el id; también con un id escrito a mano junto con su nombre; un objetivo, con id, nombre y criterio; un ciclo, declarándolo con sus etapas"
+          - "El id que se da a un nombre son sus primeras {{palabras_id}} palabras en minúsculas, sin tildes (á→a, ñ→n, ü→u) ni palabras vacías ({{palabras_vacias}}), cada palabra una vez y unidas con «-»; si pasa de {{largo_id}} se quitan palabras del final (una sola palabra larga se corta en {{largo_id}}). Si una tarea (abierta, cerrada o descartada) ya lo usa, lleva «-2», «-3»…, acortando la base para seguir en {{largo_id}}"
+          - "Un id escrito a mano al crear una tarea, un objetivo o un ciclo es de minúsculas, números y guiones simples, sin guion al comienzo ni al final, hasta {{largo_id}}; un id que ya estaba en el archivo sigue valiendo aunque no lo cumpla"
+          - "Una referencia que no existe (al escribir una celda, cerrar, declarar en curso, asignar objetivo, ciclo o dependencia) es un error que no escribe nada y sugiere hasta 3 parecidos. El parecido de un candidato es la parte de las palabras de la referencia (con la regla del id) que están en las palabras de su id o de su nombre, o 0,9 si su id está a 1 o 2 letras de la referencia (distancia de Levenshtein, y menos de la mitad del largo del id), lo que sea mayor; parece desde 0,5. Se ordenan por parecido, el mayor primero; a igual parecido, los abiertos antes y después el orden del archivo. Si ninguno se parece, el error lista los abiertos en el orden del archivo, hasta 8 (los ciclos: «proyecto» y luego los demás por nombre). En la sugerencia, un nombre de más de {{largo_id}} se corta un carácter antes y lleva «…»"
+          - "Una tarea nueva cuyo nombre repite el de una abierta (comparten al menos 2 palabras y el {{parecido_duplicada}} de las del nombre más corto, contando cada palabra una vez) o cuyo id sería el de una abierta no se crea: el error la nombra, salvo que quien crea confirme que es otra"
+        invariantes:
+          - "Nombrar un id que no existe nunca crea una tarea ni un objetivo"
+          - "Una referencia equivocada no cambia el archivo"
         conformidad:
           - id: EPF-A01
             titulo: El archivo y la respuesta coinciden
@@ -258,6 +282,27 @@ preguntas:
               que sigue un ciclo propio dice su ciclo, el JSON trae ese ciclo con sus etapas y abreviaturas y los ⏳ y ❌
               de sus tareas cuentan con su etapa; el panel pone las abreviaturas del ciclo bajo la cabecera del objetivo
               y la leyenda nombra cada ciclo
+          - id: EPT-I01
+            titulo: Nombrar no crea
+            dado: un archivo sin la tarea «segmento-barra»
+            cuando: se escribe una celda de «segmento-barra» sin nombre, se cierra, se declara en curso o otra tarea la pone como dependencia
+            entonces: es un error, el archivo no cambia y no aparece ninguna tarea nueva
+          - id: EPT-I02
+            titulo: Crear da el id
+            cuando: se crea la tarea «Ticket de MP en logs de error» por su nombre
+            entonces: >
+              queda abierta con id «ticket-mp-logs-error», ese nombre y ninguna etapa con avance; crear otra con el mismo
+              nombre, confirmando que es otra, le da «ticket-mp-logs-error-2»; crear con el id a mano «Ticket_MP» se rechaza
+          - id: EPT-I03
+            titulo: Una referencia equivocada sugiere la que era
+            dado: las tareas «barra-estado» (nombre «Segmento de estado en la barra») y «estado-por-frente» (nombre «qdd estado (RFC 0006)»)
+            cuando: se escribe una celda de «segmento-barra», de «qdd-estado» o de «barra-estdo»
+            entonces: el error sugiere «barra-estado», «estado-por-frente» y «barra-estado», en ese orden; con «xyz», que no se parece a ninguna, lista las abiertas
+          - id: EPT-I04
+            titulo: Sin duplicados
+            dado: una tarea abierta «claves-gemini» con nombre «Quitar claves de Gemini (GCP y GitHub)»
+            cuando: se crea la tarea «Quitar claves de Gemini»
+            entonces: no se crea y el error nombra «claves-gemini»; confirmando que es otra, se crea
       - valor: tablero
         descripcion: Además en un tablero compartido.
         depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
@@ -468,6 +513,11 @@ pasos:
     accion: Llevar al JSON del panel el ciclo de cada fila, con sus etapas y abreviaturas
     produce: filas con un símbolo por etapa de su ciclo y un panel que nombra cada ciclo bajo su objetivo
     verifica: [EPT-K05]
+  - id: ids
+    si: {destino: archivo}
+    accion: Separar crear de nombrar, dar el id desde el nombre y rechazar con sugerencia toda referencia que no existe
+    produce: un archivo en el que solo aparecen tareas creadas a propósito, con ids que da o valida la herramienta
+    verifica: [EPT-I01, EPT-I02, EPT-I03, EPT-I04]
   - id: actividad
     si: {en_curso: [todos, solo-agente]}
     accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
