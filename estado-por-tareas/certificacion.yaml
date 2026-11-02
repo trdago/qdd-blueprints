@@ -1,7 +1,7 @@
 # Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
-blueprint: estado-por-tareas@2.0.0
-huella: 64be19e4e1e461aa0139e06595c56e73f8b3e5ddb6b4091893d85b292533066c
-fecha: 2026-11-02 00:30
+blueprint: estado-por-tareas@2.1.0
+huella: 820d30d344eca44d6cfc5116fd5a2e971f88a4359ef4dee577e92f683be282a1
+fecha: 2026-11-02 04:06
 aprobada: true
 variantes:
     - nombre: sugerida
@@ -89,6 +89,10 @@ variantes:
         - EPT-A02
         - EPT-A03
         - EPT-K05
+        - EPT-I01
+        - EPT-I02
+        - EPT-I03
+        - EPT-I04
         - EPT-C01
         - EPT-C02
         - EPT-C03
@@ -103,7 +107,7 @@ variantes:
         - EPT-C13
       lenguaje: Python 3 (solo biblioteca estándar; pruebas con unittest)
       comando: python3 -m unittest discover -s tests -v
-      resultado: pruebas ✅ · escenarios con prueba 28/28
+      resultado: pruebas ✅ · escenarios con prueba 32/32
       supuestos:
         - 'Paso 2 (⏳): «qué y de quién» se lee como «espera <algo> de <rol>» (también «del CI»); el rol sale de la lista base más los que agregue el proyecto, así un nombre de persona nunca vale.'
         - 'Paso 2 (✅ evidencia): commit en hex de 7-40 con al menos un dígito (mayúsculas o minúsculas); semver X.Y.Z con prerelease/build opcional; «n/n pruebas» y «corrida <id>» tal como dice la receta.'
@@ -130,4 +134,15 @@ variantes:
         - 'Paso 11: el latido es tiempo de lectura: el ● es tenue en segundos pares y brillante en impares; destella en «acento» 1 s desde la lectura en que cambia ultimo_pulso (la primera lectura no destella). El estilo va en datos (punto/running), el texto es apto para mensajería.'
         - 'Paso 12: el tope de 5 s es por panel (un Latidor por panel); el destello local ocurre con cada herramienta aunque la CLI no reciba pulso; la herramienta de tareas (Task/Agent, o «task» en OpenCode) late como subagente; el envío corre en un hilo y sus errores se ignoran.'
         - 'CLI: «python3 -m estado_tareas [--proyecto P] [--central C] check|activa|pulso|termina|panel» hace de ''qdd estado …''.'
+        - 'Paso 9 / EPT-I01: la tabla, los cierres, las dependencias, «(espera a X)», la pregunta y el panel siguen nombrando la tarea por su id; el nombre se guarda en el archivo (y va como «nombre» en el JSON del panel). Un archivo viejo sin nombre usa el id como nombre.'
+        - 'Paso 9 / EPT-I01: crear es crear_tarea(nombre[, id][, es_otra]) o la CLI «crea»; agregar_tarea(id, …, nombre=None) es crear con id a mano y, sin nombre, el nombre es el id. Las escrituras de la CLI (celda, cierra, descarta, depende) cargan el archivo, aplican y guardan solo si no hubo error (Estado.editar).'
+        - 'Paso 9 / EPT-I01: códigos del error de una referencia que no existe: EPT-I01 al escribir una celda, cerrar, descartar o asignar objetivo/ciclo/foco; EPT-D01 si es una dependencia; EPT-C02 al declarar en curso o pulsar. Todos sugieren igual. Una tarea cerrada o descartada existe: escribirle es otro error (no está abierta).'
+        - 'Paso 9 / EPT-I02: «palabra» = tramo de letras y dígitos tras pasar a minúsculas y quitar tildes (NFD sin marcas, así á→a, ñ→n, ü→u); todo lo demás separa. Primero se quitan las vacías y las repetidas y luego se toman las 4 primeras.'
+        - 'Paso 9 / EPT-I02: «hasta 40 caracteres» quita palabras del final mientras el id pase de 40 (una sola palabra larga se corta en 40); el sufijo «-2», «-3»… se pone acortando la base para seguir en 40, y lo evita cualquier tarea que use el id (abierta, cerrada o descartada). Un nombre que no deja ninguna palabra no da id: hay que escribirlo a mano.'
+        - 'Paso 9 / EPT-I02: el formato de id escrito a mano ([a-z0-9]+(-[a-z0-9]+)*, ≤40) vale al crear tareas, objetivos y ciclos (por eso el ciclo y objetivo de la prueba EPT-K05 pasaron a «diseno»/«rediseno»); un id a mano que ya usa una tarea se rechaza siempre, aun confirmando que es otra. El nombre no puede ser vacío ni tener saltos de línea.'
+        - 'Paso 9 / EPT-I02: un objetivo se crea con agregar_objetivo(id, criterio, ciclo, nombre=None); sin nombre, el nombre es el id.'
+        - 'Paso 9 / EPT-I03: «en las palabras de su id o de su nombre» = en la unión de ambas; si la referencia no deja palabras, su parecido por palabras es 0. Levenshtein se mide entre la referencia en minúsculas (sin espacios al borde) y el id tal cual.'
+        - 'Paso 9 / EPT-I03: «orden del archivo» = las tareas abiertas en orden de creación y después las cerradas/descartadas en el orden en que se cerraron (así se escriben en estado.yaml); los objetivos, por orden de creación; los ciclos, como en su lista: «proyecto» y luego por nombre (también a igual parecido). Objetivos y ciclos cuentan como abiertos.'
+        - 'Paso 9 / EPT-I03: en la sugerencia cada uno va «id (nombre)» (sin nombre si es igual al id). El error lleva los ids en .sugerencias y en .parecidas si son parecidos (True) o la lista de abiertos (False).'
+        - 'Paso 9 / EPT-I04: el duplicado compara las palabras de los nombres con la regla del id (sin vacías, sin tildes, una vez cada una) y solo contra tareas abiertas; «cuyo id sería el de una abierta» es que el id base (sin sufijo) coincide con el de una abierta. Confirmar que es otra es es_otra=True (CLI --es-otra) y el error trae en .sugerencias las tareas repetidas.'
       aprobada: true
