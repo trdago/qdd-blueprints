@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 2.0.0
+version: 3.0.0
 requiere_qdd: 2.8.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
@@ -61,6 +61,10 @@ vocabulario:
     definicion: Para qué se hacen unas tareas y cuándo se cumple (su criterio de éxito).
   - termino: foco
     definicion: El objetivo abierto en el que se trabaja ahora; a lo más uno, y se muestra primero.
+  - termino: ciclo
+    definicion: >
+      Una lista de etapas con nombre. Las etapas de la tabla son el ciclo «proyecto»; un objetivo puede seguir otro
+      ciclo y sus tareas toman esas etapas.
   - termino: actividad
     definicion: >
       El registro de las tareas en curso y sus pulsos. Es de la máquina, vive fuera del proyecto (en la carpeta central
@@ -157,11 +161,18 @@ preguntas:
           - "En la tabla, antes de las tareas de cada objetivo va su fila: «🎯 <objetivo>» (con «· foco» si lo es) en la primera columna, «—» en cada etapa salvo la última, que lleva su estado y su criterio"
           - "Los objetivos van con el foco primero y después en orden; las tareas sin objetivo van al final bajo una fila «🎯 sin objetivo», con todas sus etapas en «—»"
           - "Una tarea que depende de otra de otro objetivo queda bajo su propio objetivo y dice «espera a X (otro objetivo)»"
+          - "Las etapas elegidas son el ciclo «proyecto». Un proyecto puede declarar otros ciclos con nombre, cada uno con sus etapas, y un objetivo puede seguir uno: sus tareas toman esas etapas. Sin ciclo, el objetivo sigue el del proyecto"
+          - "Un blueprint que trae su propio ciclo (p. ej. las fases de ciclo-de-vida-agentico) lo declara al aplicarse y pone sus tareas bajo un objetivo que lo sigue; no cambia las etapas del proyecto"
+          - "Con ciclos, el reporte trae una tabla por ciclo, cada una con sus columnas: la del proyecto primero y después cada ciclo en el orden de sus objetivos"
+          - "Cambiar una tarea de ciclo (por su objetivo, por el ciclo del objetivo o por las etapas del ciclo) conserva las celdas de las etapas comunes y agrega las nuevas sin empezar"
         invariantes:
           - "Un objetivo cumplido lleva evidencia de su criterio; terminar sus tareas no basta"
           - "A lo más un objetivo abierto es el foco"
           - "Una tarea sirve a un objetivo que existe, o a ninguno"
           - "Un objetivo no desaparece en silencio"
+          - "Una tarea tiene una celda por cada etapa de su ciclo, y solo esas"
+          - "Un objetivo sigue un ciclo que existe; un ciclo tiene etapas, sin repetir"
+          - "Cambiar de ciclo nunca pierde avance: una tarea con ✅ ⏳ o ❌ en una etapa que el ciclo nuevo no tiene no cambia"
         conformidad:
           - id: EPT-O01
             titulo: Objetivo con criterio
@@ -190,6 +201,24 @@ preguntas:
             titulo: La tabla agrupa por objetivo
             cuando: se entrega la tabla
             entonces: cada objetivo tiene su fila 🎯 antes de sus tareas, el foco primero, y las tareas sin objetivo van al final bajo «🎯 sin objetivo»
+          - id: EPT-K01
+            titulo: Ciclos válidos
+            cuando: se declara un ciclo sin etapas, con una etapa repetida o llamado «proyecto», o un objetivo sigue un ciclo que no existe
+            entonces: es un error y no se escribe nada
+          - id: EPT-K02
+            titulo: La tarea toma las etapas de su ciclo
+            dado: un objetivo que sigue un ciclo propio
+            cuando: se le agrega una tarea o se marca una de sus celdas
+            entonces: la tarea tiene una celda por etapa de ese ciclo, sin empezar; una celda de otra etapa no vale y no se escribe
+          - id: EPT-K03
+            titulo: Cambiar de ciclo no pierde avance
+            cuando: una tarea pasa a otro ciclo (cambia su objetivo, el ciclo de su objetivo o las etapas del ciclo)
+            entonces: conserva las celdas de las etapas comunes y agrega las nuevas sin empezar; si tiene ✅ ⏳ o ❌ en una etapa que el ciclo nuevo no tiene, es un error que la nombra y no se escribe
+          - id: EPT-K04
+            titulo: Una tabla por ciclo
+            dado: objetivos que siguen ciclos distintos
+            cuando: se entrega la tabla
+            entonces: hay una tabla por ciclo con sus columnas, la del proyecto primero, y el lector automático revisa cada tarea en la de su ciclo
       - valor: "no"
         descripcion: No. La tabla es plana; las dependencias entre tareas valen igual.
         alcance: {excluye: ["Objetivos y foco"]}
@@ -220,6 +249,14 @@ preguntas:
             titulo: Cada fila trae su pregunta
             cuando: se arma el JSON del panel
             entonces: cada tarea (y cada objetivo, si los hay) trae la pregunta «¿Cómo vamos con…?» que el panel le envía al agente al pincharla
+          - id: EPT-K05
+            titulo: El panel lleva los ciclos
+            cuando: se arma el JSON del panel
+            entonces: >
+              cada fila trae un símbolo por etapa de su ciclo, y sin ciclos propios el JSON no trae ciclos; un objetivo
+              que sigue un ciclo propio dice su ciclo, el JSON trae ese ciclo con sus etapas y abreviaturas y los ⏳ y ❌
+              de sus tareas cuentan con su etapa; el panel pone las abreviaturas del ciclo bajo la cabecera del objetivo
+              y la leyenda nombra cada ciclo
       - valor: tablero
         descripcion: Además en un tablero compartido.
         depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
@@ -404,13 +441,18 @@ pasos:
     verifica: [EPT-M01]
   - id: dependencias
     accion: Guardar de qué tareas depende cada una y rechazar la última etapa en ✅ o el cierre mientras una no termine
-    produce: ninguna tarea termina antes que sus dependencias y ninguna dependencia rota o en ciclo
+    produce: ninguna tarea termina antes que sus dependencias y ninguna dependencia rota o circular
     verifica: [EPT-D01, EPT-D02]
   - id: objetivos
     si: {objetivos: si}
     accion: Agrupar las tareas bajo objetivos con su criterio, a lo más un foco, y cumplirlos solo con evidencia
     produce: una tabla con una fila 🎯 por objetivo antes de sus tareas, el foco primero y las sin objetivo al final
     verifica: [EPT-O01, EPT-O02, EPT-O03, EPT-O04, EPT-O05, EPT-O06]
+  - id: ciclos
+    si: {objetivos: si}
+    accion: Dejar que un objetivo siga un ciclo con sus propias etapas, sin cambiar las del proyecto ni perder avance al cambiar de ciclo
+    produce: tareas con las celdas de su ciclo y una tabla por ciclo, la del proyecto primero
+    verifica: [EPT-K01, EPT-K02, EPT-K03, EPT-K04]
   - id: reporte
     accion: Comparar cada reporte con el anterior y con su texto, y revisar que no lleve secretos
     produce: ninguna tarea desaparece sin cierre o descarte con motivo, el texto coincide con la tabla y no hay datos personales
@@ -419,7 +461,7 @@ pasos:
     si: {destino: archivo}
     accion: Guardar la misma tabla en .qdd/project/estado.yaml en cada reporte
     produce: un archivo desde el que otro agente retoma por los ⏳, y un JSON del panel con el árbol y la pregunta de cada fila
-    verifica: [EPF-A01, EPT-A02, EPT-A03]
+    verifica: [EPF-A01, EPT-A02, EPT-A03, EPT-K05]
   - id: actividad
     si: {en_curso: [todos, solo-agente]}
     accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
@@ -468,7 +510,7 @@ ficha:
     decisiones:
       - "Los estados son cerrados: ✅ ⏳ ❌ —"
       - "La prosa acompaña a la tabla; no la reemplaza"
-      - "La tabla del reporte es su primera tabla: la tarea en la primera columna y una etapa por columna"
+      - "La tabla del reporte es su primera tabla: la tarea en la primera columna y una etapa por columna; con ciclos, una tabla por ciclo (la del proyecto primero)"
       - "Una celda empieza por su estado y sigue con una nota libre; la «—» es estado solo al comienzo, y otro ✅ ⏳ ❌ en la nota es un segundo estado: la celda no vale"
       - "La evidencia de un ✅ es un commit (de {{largo_commit}}, con al menos un dígito), una versión semver (con o sin «v»), «n/n pruebas» con las dos cifras iguales y mayores que cero, o «corrida <id>» con al menos un dígito en el id"
       - "El «de quién» de un ⏳ es un rol de una lista base (la persona, QA, el CI, producción) que el proyecto puede ampliar; nunca el nombre de alguien"
@@ -478,7 +520,7 @@ ficha:
       - "Un cierre se escribe en el reporte como «<tarea>: cerrada — <motivo>» o «<tarea>: descartada — <motivo>»"
       - "El texto afirma un estado con «<tarea> · <etapa>: <estado>»; solo esas afirmaciones se comparan con la tabla, y una sobre una tarea o etapa que no está en ella también la contradice"
       - "Una tarea puede depender de otras (por su id); mientras una no termine, su última etapa que aplica no pasa a ✅ ni se cierra, y la tabla la nombra «<tarea> (espera a X, Y)»"
-      - "Una dependencia que no existe, la de una tarea consigo misma o una que cierra un ciclo no vale"
+      - "Una dependencia que no existe, la de una tarea consigo misma o una circular (que vuelve a la misma tarea) no vale"
       - "Descartar una dependencia no libera a quien la espera: hay que quitarla de sus dependencias"
       - "Credenciales y datos personales, como mínimo: correos, teléfonos, RUT u otro identificador nacional, tokens con prefijo conocido (sk-, ghp_, AKIA, xox, npm_), claves privadas, «clave=», «token=», «password=» y «Bearer …»; un proyecto puede agregar, nunca quitar"
     invariantes:
@@ -492,7 +534,7 @@ ficha:
       - "No hay credenciales ni datos personales en el reporte: ni en la tabla ni en el texto"
       - "El texto y la tabla no se contradicen"
       - "Una tarea no termina antes que sus dependencias"
-      - "Las dependencias no hacen ciclos"
+      - "Las dependencias no son circulares"
 
 conformidad:
   - id: EPF-C01
@@ -530,7 +572,7 @@ conformidad:
     cuando: el texto del reporte afirma un estado
     entonces: la tabla muestra ese mismo estado
   - id: EPT-D01
-    titulo: Una dependencia existe y no hace ciclo
+    titulo: Una dependencia existe y no es circular
     cuando: una tarea depende de una que no está, de sí misma o de una que la espera
     entonces: no vale y no se escribe
   - id: EPT-D02
