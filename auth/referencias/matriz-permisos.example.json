@@ -1,0 +1,38 @@
+{
+  "$comentario": "Ejemplo de matriz de roles y permisos del blueprint auth. Fuente única de verdad: se versiona en el repositorio, la embebe el backend (si no carga, el servicio no arranca) y la lee el frontend solo para mostrar u ocultar. Permisos con forma recurso.accion. El código consulta permisos, nunca nombres de rol. Solo el rol de soporte tiene el comodín.",
+  "version": 1,
+  "permisos": {
+    "usuarios.leer": "Ver usuarios de la organización",
+    "usuarios.escribir": "Crear, editar, suspender e invitar usuarios de la organización",
+    "roles.leer": "Ver roles y sus permisos",
+    "roles.escribir": "Asignar roles a usuarios de la organización",
+    "sesiones.revocar": "Cerrar sesiones de usuarios de la organización",
+    "api_keys.escribir": "Crear y revocar API keys de clientes de sistema",
+    "auditoria.leer": "Ver la auditoría de seguridad de la organización",
+    "sistema.administrar": "Administrar organizaciones y roles de sistema"
+  },
+  "roles": {
+    "usuario": {
+      "descripcion": "Usuario final: solo sus propios datos",
+      "permisos": []
+    },
+    "consulta": {
+      "descripcion": "Lectura dentro de la organización",
+      "permisos": ["usuarios.leer", "roles.leer"]
+    },
+    "admin_organizacion": {
+      "descripcion": "Administra personas y accesos de su organización",
+      "permisos": ["usuarios.leer", "usuarios.escribir", "roles.leer", "roles.escribir", "sesiones.revocar", "api_keys.escribir", "auditoria.leer"],
+      "requiere_segundo_factor": true
+    },
+    "soporte": {
+      "descripcion": "Soporte del producto",
+      "permisos": ["*"],
+      "requiere_segundo_factor": true
+    }
+  },
+  "reglas": {
+    "otorgar_solo_permisos_propios": true,
+    "comodin_solo_rol": "soporte"
+  }
+}
