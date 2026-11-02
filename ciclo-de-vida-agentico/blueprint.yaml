@@ -9,7 +9,7 @@
 #   qdd modules approve ciclo-de-vida-agentico
 id: ciclo-de-vida-agentico
 nombre: Ciclo de vida agéntico
-version: 1.0.0
+version: 2.0.0
 requiere_qdd: 2.8.0
 licencia: MIT
 alcance:
@@ -308,17 +308,21 @@ preguntas:
       - valor: estado
         descripcion: >
           En la tabla de estado-por-tareas: cada fase es una tarea con las etapas Concepto · Artefacto · Medición ·
-          Puerta.
-        depende_de: ["El blueprint estado-por-tareas aplicado con destino archivo, etapas propias (Puerta cumple el rol de Validación real) y Puerta entre las que requieren aprobación"]
-        decisiones: ["Una fase que no aplica va en «—» en todas sus etapas, con su motivo"]
+          Puerta, en su propio ciclo, sin cambiar las etapas del proyecto.
+        depende_de: ["El blueprint estado-por-tareas aplicado con destino archivo y objetivos (sus ciclos con nombre)"]
+        decisiones:
+          - "Las fases van bajo un objetivo «Ciclo de vida agéntico» que sigue el ciclo «agentico» (Concepto · Artefacto · Medición · Puerta): 'qdd estado ciclo agentico Concepto Artefacto Medición Puerta' y 'qdd estado objetivo … --ciclo agentico'. Las etapas del proyecto no cambian"
+          - "En ese ciclo, Puerta cumple el rol de Validación real y cada celda Puerta se crea con requiere_aprobacion de la persona"
+          - "Una fase que no aplica va en «—» en todas sus etapas, con su motivo"
         invariantes: ["La etapa Puerta solo pasa a ✅ con la aprobación de una persona escrita en la celda"]
         conformidad:
           - id: CVA-R01
             titulo: Las fases en la tabla de estado
             cuando: se aplica el blueprint
             entonces: >
-              cada fase es una tarea de .qdd/project/estado.yaml con sus 4 etapas, igual que en plan.yaml; al inicio
-              todas en ⏳, y tras un diagnóstico según su nivel, con la Puerta nunca en ✅
+              cada fase es una tarea de .qdd/project/estado.yaml bajo el objetivo del ciclo «agentico», con sus 4 etapas,
+              igual que en plan.yaml, y las etapas del proyecto no cambian; al inicio todas en ⏳, y tras un diagnóstico
+              según su nivel, con la Puerta nunca en ✅
       - valor: archivo
         descripcion: Solo en .qdd/project/tutor/plan.yaml, sin la tabla de estado.
   - id: comprension
@@ -369,7 +373,7 @@ pasos:
     verifica: [CVA-D01, CVA-D02, CVA-D03, CVA-D04, CVA-D05, CVA-D06, CVA-D07]
   - id: registro-estado
     si: {registro: estado}
-    accion: Crear una tarea por fase en .qdd/project/estado.yaml con las etapas Concepto · Artefacto · Medición · Puerta
+    accion: Declarar el ciclo «agentico» (Concepto · Artefacto · Medición · Puerta) y crear una tarea por fase en .qdd/project/estado.yaml bajo un objetivo que lo sigue
     produce: la tabla de estado con las 14 fases, coherente con el plan
     verifica: [CVA-R01]
   - id: ciclo
