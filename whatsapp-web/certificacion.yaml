@@ -1,0 +1,234 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: whatsapp-web@0.0.0
+huella: 76fd24a165349b043096324cb8090a8da038417330bb22491bda690e3caeeb70
+fecha: 2026-11-03 00:59
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        activacion: escucha_permanente
+        aviso_avance_min: "30"
+        base_sesion: sqlite
+        categorias: factura_o_pago, documento_legal, coordinacion_comercial, otro_empresa, personal
+        categorias_con_propuesta: factura_o_pago, documento_legal
+        clasificacion: propuestas
+        clasificador: servicio
+        envio_max_archivos: "10"
+        envio_max_personas_dia: "5"
+        envio_max_por_hora: "10"
+        envio_mismo_contenido_min: "10"
+        envio_terceros: documentos_con_like
+        fuente_lista_blanca: ambos
+        grupos: a_mano
+        intentos_recuperacion: "3"
+        largo_no_trivial: "12"
+        marca_respuesta: "\U0001F916"
+        max_caracteres_clasificar: "4000"
+        max_mensajes_historial: "3"
+        max_propuestas: "2"
+        min_confianza: "0.70"
+        nombre_dispositivo: Empresa Demo Vigía
+        outbox_cada_s: "20"
+        outbox_lote: "20"
+        outbox_max_intentos: "5"
+        pais_telefono: 'Chile: 9 dígitos que empiezan con 9 → +56; 11 dígitos que empiezan con 569 → +'
+        palabras_triviales: "ok, oka, okey, okay, dale, listo, gracias, muchas gracias, si, sí, no, perfecto, genial, buenas, hola, buenos días, buenas tardes, buenas noches, vale, de acuerdo, \U0001F44D"
+        pausa_archivos_s: "1.5"
+        persistencia_outbox: base
+        prefijo: bot
+        recarga_lista_min: "5"
+        reclasificar_min: "10"
+        recuperar_adjuntos: pedir_al_telefono
+        recuperar_cada_min: "30"
+        recuperar_lote: "20"
+        sincroniza_lista_h: "6"
+        tope_adjunto_mb: "25"
+        tope_diario_clasificador: "300"
+        tope_outbox_mb: "16"
+        vence_envio_min: "10"
+        vence_propuesta_min: "15"
+        vinculacion: ambos
+      escenarios:
+        - WAW-C01
+        - WAW-C02
+        - WAW-C03
+        - WAW-C04
+        - WAW-C05
+        - WAW-C06
+        - WAW-C07
+        - WAW-C08
+        - WAW-C11
+        - WAW-C14
+        - WAW-P01
+        - WAW-P02
+        - WAW-P03
+        - WAW-P04
+        - WAW-A01
+        - WAW-A02
+        - WAW-A03
+        - WAW-A04
+        - WAW-A05
+        - WAW-A06
+        - WAW-A07
+        - WAW-A08
+        - WAW-O01
+        - WAW-O02
+        - WAW-O03
+        - WAW-O04
+        - WAW-V01
+        - WAW-V02
+        - WAW-V03
+        - WAW-V04
+        - WAW-C10
+        - WAW-L01
+        - WAW-L02
+        - WAW-L03
+        - WAW-G01
+        - WAW-P05
+        - WAW-P08
+        - WAW-O05
+        - WAW-R01
+        - WAW-R02
+        - WAW-R03
+        - WAW-R05
+        - WAW-T01
+        - WAW-T02
+        - WAW-T03
+        - WAW-T04
+        - WAW-T05
+        - WAW-T06
+        - WAW-T07
+        - WAW-T08
+        - WAW-C09
+        - WAW-K01
+        - WAW-K02
+        - WAW-K03
+        - WAW-K04
+        - WAW-K05
+        - WAW-K09
+        - WAW-N01
+        - WAW-N02
+        - WAW-N03
+        - WAW-N07
+        - WAW-N04
+        - WAW-N05
+        - WAW-N08
+        - WAW-N06
+        - WAW-K07
+      lenguaje: go
+      comando: GOCACHE=/mnt/fast/gocache go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 66/66
+      supuestos:
+        - 'Paso 1 / WAW-C06: una sesión sin dispositivo vinculado al arrancar «vigia correr» se trata como error terminal (código 3), porque reiniciar cada 30 s no la vincula.'
+        - 'Paso 3 / WAW-V03: «cuánto había» en el tiempo agotado es la suma de los Timeout de los códigos que entregó el canal de vinculación.'
+        - 'Paso 14 / WAW-P05: el prefijo es «bot» (seguido de espacio, coma o dos puntos); «cierra» y «cerrar» cierran tanto solos como con prefijo («bot cierra»).'
+        - 'Paso 13: un mensaje del chat propio cuenta como «escrito desde otro dispositivo» si el dispositivo del remitente no es el de esta sesión; las reacciones del chat propio entran por la misma cola y van al motor de aprobación.'
+        - 'Paso 10: un adjunto sin tamaño declarado (0) se descarga; el texto del adjunto para normalizar y clasificar solo se extrae de archivos text/* (sin OCR ni lectura de PDF).'
+        - 'Paso 10: se reintenta guardar ante cualquier error de la base, no solo «base ocupada».'
+        - 'Paso 18 / WAW-T08: «por día» y «por hora» son ventanas móviles de 24 h y 1 h; cuentan solo los envíos que salieron (estado enviado); «lo mismo» es la misma persona con la misma huella del contenido de los archivos.'
+        - 'Paso 18: el pie se arma con tipo, número, receptor, fecha y monto del documento que entrega quien pide el envío (sin IA); la advertencia de número nuevo se basa en que no haya envíos previos a ese teléfono.'
+        - 'Paso 19 / WAW-K01: «dudoso» aplica a cualquier categoría con confianza bajo 0,70, no solo a las que proponen.'
+        - 'Paso 19: el tope de 4000 caracteres se aplica al extracto del adjunto; el texto del mensaje y el nombre del adjunto van completos.'
+        - 'Paso 19: una categoría fuera de las declaradas se trata como falla del clasificador (queda pendiente y gasta cupo).'
+        - 'Paso 19 / WAW-K09: sin RUT propio configurado la contraparte es el primer RUT del texto.'
+        - 'Paso 19: la contraparte y los RUT se guardan formateados 12.345.678-5; los montos se formatean con punto de miles y coma decimal (CLP sin decimales).'
+        - 'Paso 7 / WAW-L02: varios contactos de la libreta con el mismo número cuentan como uno; el contacto agregado a mano requiere empresa y modo.'
+        - 'Paso 6/20: el contrato de los servicios externos queda fuera del alcance; se implementó uno JSON sobre HTTP con URL y credencial en VIGIA_*_URL / VIGIA_*_TOKEN.'
+        - 'Paso 13: qué responde el agente queda fuera del alcance; el comando trae un agente mínimo que solo acusa recibo, detrás del puerto Agente.'
+        - 'Paso 11: el ancla de un faltante es el primer mensaje guardado posterior a él en su chat.'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        activacion: prefijo
+        aviso_avance_min: "15"
+        base_sesion: postgres
+        clasificacion: "no"
+        envio_terceros: "no"
+        fuente_lista_blanca: servicio_externo
+        grupos: "no"
+        marca_respuesta: "\U0001F7E2"
+        max_propuestas: "1"
+        nombre_dispositivo: Vigía de facturas
+        outbox_cada_s: "5"
+        outbox_lote: "5"
+        outbox_max_intentos: "3"
+        pais_telefono: 'Perú: 9 dígitos que empiezan con 9 → +51'
+        persistencia_outbox: memoria
+        prefijo: ia
+        recarga_lista_min: "1"
+        recuperar_adjuntos: "no"
+        sincroniza_lista_h: "1"
+        tope_adjunto_mb: "16"
+        tope_outbox_mb: "90"
+        vence_propuesta_min: "10"
+        vinculacion: codigo
+      escenarios:
+        - WAW-C01
+        - WAW-C02
+        - WAW-C03
+        - WAW-C04
+        - WAW-C05
+        - WAW-C06
+        - WAW-C07
+        - WAW-C08
+        - WAW-C11
+        - WAW-C14
+        - WAW-P01
+        - WAW-P02
+        - WAW-P03
+        - WAW-P04
+        - WAW-A01
+        - WAW-A02
+        - WAW-A03
+        - WAW-A04
+        - WAW-A05
+        - WAW-A06
+        - WAW-A07
+        - WAW-A08
+        - WAW-O01
+        - WAW-O02
+        - WAW-O03
+        - WAW-O04
+        - WAW-V01
+        - WAW-V02
+        - WAW-V03
+        - WAW-C12
+        - WAW-C13
+        - WAW-L01
+        - WAW-L03
+        - WAW-G02
+        - WAW-P06
+        - WAW-O06
+        - WAW-R04
+        - WAW-T09
+        - WAW-K06
+      lenguaje: go
+      comando: GOCACHE=/mnt/fast/gocache go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 39/39
+      supuestos:
+        - 'Paso 1 / Paso 3: «Vigía de facturas» va como nombre del dispositivo (DeviceProps.Os, plataforma Chrome) y «Chrome (Linux)» como nombre del cliente en PairPhone; la receta da dos nombres y no dice cuál ve el teléfono.'
+        - 'Paso 3: un error de la petición del código (PairPhone) cuenta como «rechazo»; los eventos de passkey u otros desconocidos del canal cuentan como «estado inesperado».'
+        - 'WAW-V03: «el tiempo agotado dice cuánto había» se interpreta como la validez del código (unos 2 min) y el tiempo transcurrido desde que se pidió; el mensaje trae ambos.'
+        - 'E.164: la receta solo da la regla de Perú; sin «+» se exige que el número ya traiga el código de país (10 a 15 dígitos); se aceptan espacios, guiones, puntos, paréntesis y el prefijo 00.'
+        - 'Lista blanca: un modo vacío es «completo»; uno desconocido se toma como «solo documentos» (el más restrictivo); ante teléfonos repetidos gana el primero.'
+        - 'Trivial: «muy corto» es menos de 4 caracteres tras quitar espacios y signos; además vacío, solo emojis o fórmulas fijas (ok, gracias, listo, dale…).'
+        - 'Paso 13: el prefijo «ia» se reconoce sin distinguir mayúsculas (el teclado del teléfono capitaliza «Ia»).'
+        - 'Paso 8: todo aviso de historial se guarda primero en disco (archivo 600 nombrado por su sha256, carpeta 700) y se procesa si hay lista; así una falla lo deja pendiente y se borra solo al procesarse bien.'
+        - 'Paso 8: al descargar un aviso solo se traducen las conversaciones 1:1 (número o LID); cada mensaje pasa por el mismo handler y lista blanca que los mensajes en vivo.'
+        - 'Paso 9: una descarga de adjunto que falla por otra causa que expiración queda como «fallido»; la expirada (403/404/410 o sin URL) como «faltante»; audios, videos y stickers se describen pero no se descargan.'
+        - 'Paso 9: el log de descarte por reintentos agotados lleva solo el teléfono enmascarado y el id (no el error, que podría traer contenido).'
+        - 'Paso 11 / WAW-C06: una sesión sin vincular al arrancar también sale con 3 (reintentar no sirve); TemporaryBan, ClientOutdated y otros salen con 1, porque la receta solo nombra revocación y otra instancia como terminales.'
+        - 'Paso 12: lo «escrito por este dispositivo» se reconoce porque el remitente propio tiene el mismo número de dispositivo que la sesión.'
+        - 'Paso 14: la ejecución corre aparte del orden de la cola del chat propio, para que una acción larga no detenga la consola; el avance cada 15 min se manda mientras dura.'
+        - "Paso 14: la propuesta se escribe primero (para tener el id del mensaje) y luego se guarda; si el guardado falla, el \U0001F44D sobre ese mensaje no hace nada."
+        - 'WAW-A06 / WAW-A07: las tareas en segundo plano viven en la tabla «tareas» de la base del proyecto; quién las crea queda fuera de la receta (lo hacen las herramientas del agente). El vigía las revisa al arrancar y cada 1 min (intervalo no dado).'
+        - 'WAW-A07 con cola en memoria: tras un reinicio la cola está vacía, así que una tarea sin cerrar se vuelve a encolar una vez; si sus archivos ya habían salido, llegan otra vez (al menos una vez).'
+        - "Paso 15: el pie de cada documento lleva la marca \U0001F7E2 (todo mensaje del agente en el chat propio la lleva); sin pie se usa el nombre."
+        - 'Paso 15: una ruta con «..» se rechaza aunque se resuelva dentro de una carpeta válida; los enlaces simbólicos no son «archivo regular» (Lstat).'
+        - 'Paso 4: la prueba guardiana recorre el código de producción (sin _test.go, porque los fakes deben declarar SendMessage/Upload) y compara identificadores, no comentarios ni textos; «Upload» es exacto y solo SetGroup*/JoinGroup* son prefijos.'
+        - 'Paso 4: «sus llamadas exactas» del emisor se fija de dos formas: 3 usos de SendMessage y 2 de Upload (interfaz mínima más llamadas) y 2/1 llamadas, con destino que sale de la sesión.'
+        - 'Servicios externos (directorio de la lista blanca, agente, ejecutor de acciones y su vista previa): su contrato no lo fija la receta; se conectan como comandos externos con JSON por stdin/stdout configurados en config/vigia.json.'
+        - 'Base del proyecto: Postgres en su propio esquema (search_path), con conexión por entorno; no hay pruebas contra una base real (prohibido conectarse), solo contra fakes de los puertos.'
+        - 'Paso 2 / WAW-C13: el usuario de solo lectura se crea con deploy/sesion.sql (GRANT SELECT y default_transaction_read_only); la prueba usa un driver database/sql falso que imita ese comportamiento.'
+        - 'Paso 11: la unidad usa After/Wants=network-online.target aunque en el gestor de usuario ese objetivo no siempre está disponible.'
+      aprobada: true
