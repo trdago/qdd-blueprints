@@ -1,6 +1,6 @@
 # Blueprint QDD: usuarios, roles, permisos y acceso.
 # Cómo se identifica a una persona o a un sistema, cómo se le da acceso y cómo se decide qué puede hacer. Destilado de
-# varios productos en producción (backends propios con JWT, proveedores delegados, apps móviles y paneles web) y de los
+# varios productos en producción (backends propios con JWT, apps móviles y paneles web) y de los
 # fallos de seguridad que se repitieron en ellos. Matriz de permisos y validación de RUT de ejemplo en referencias/.
 #
 #   qdd blueprint add auth
@@ -8,14 +8,16 @@
 #   qdd modules approve auth
 id: auth
 nombre: Usuarios, roles, permisos y acceso
-version: 1.0.0
+version: 2.0.0
 requiere_qdd: 2.8.0
 licencia: MIT
 descripcion: >
   La identidad (quién eres) y la autorización (qué puedes hacer) son capas separadas: el token solo prueba identidad y
   los permisos se resuelven siempre en el backend contra una matriz versionada de roles y permisos. Cubre login,
   sesiones, recuperación, alta y baja de cuentas, organizaciones, segundo factor, clientes de sistema, tokens para una
-  capa de datos o de tiempo real, sesiones de dispositivo, enlaces para terceros y la auditoría de seguridad.
+  capa de datos o de tiempo real, sesiones de dispositivo, enlaces para terceros y la auditoría de seguridad. La
+  identidad es siempre del proyecto, en sus propias tablas: ningún proveedor externo es dueño de usuarios, roles ni
+  sesiones, para no amarrarse a una tecnología.
 
 alcance:
   incluye:
@@ -30,6 +32,7 @@ alcance:
     - "Ser proveedor de identidad para otros (servidor OAuth u OIDC propio)"
     - "Las reglas de negocio de cada recurso (quién es dueño de un dato, horarios, cupos)"
     - "Planes, facturación y suscripciones"
+    - "Delegar la identidad en un proveedor externo (Supabase Auth, Cognito, Firebase Auth u otro)"
 
 vocabulario:
   - termino: usuario
@@ -97,13 +100,11 @@ parametros:
     por_defecto: "30"
     ejemplos: ["7", "30", "90"]
   - id: vida_recuperacion
-    si: {proveedor_identidad: propio}
     pregunta: ¿Cuántos minutos vale un enlace de recuperación de contraseña?
     tipo: numero
     por_defecto: "30"
     ejemplos: ["15", "30"]
   - id: max_fallos
-    si: {proveedor_identidad: propio}
     pregunta: ¿Cuántos intentos fallidos seguidos bloquean temporalmente una cuenta o una IP?
     ayuda: El bloqueo crece en forma exponencial con cada nueva serie de fallos.
     tipo: numero
@@ -161,118 +162,8 @@ constantes:
     por_que: absorbe el desfase normal de los relojes de los teléfonos sin aceptar tokens del futuro
 
 preguntas:
-  - id: proveedor_identidad
-    pregunta: ¿Quién es dueño de la identidad (contraseñas y login)?
-    ayuda: >
-      Con un proveedor delegado el proyecto no guarda contraseñas, pero la autorización (roles y permisos) sigue siendo
-      suya.
-    por_defecto: propio
-    opciones:
-      - valor: propio
-        descripcion: El backend del proyecto autentica y emite sus tokens.
-        depende_de:
-          - "El equipo mantiene hashing, sesiones, recuperación y límites de intentos"
-        decisiones:
-          - "Contraseñas con {{hash_clave}}"
-        invariantes:
-          - "Contraseña de {{largo_min_clave}} a {{largo_max_clave}}, sin reglas de composición; se rechazan {{claves_comunes}} y las que contienen el identificador"
-          - "La contraseña se procesa igual al crearla, cambiarla y entrar: sin recortes ni cambios; un error del hash aborta la operación"
-          - "Un hash con parámetros más débiles que los vigentes se rehace en el siguiente login correcto"
-          - "Un login con usuario inexistente calcula igual un hash ficticio: el tiempo no revela si la cuenta existe"
-          - "El estado del usuario (suspendido, sin acceso, dado de baja) se revisa después de la contraseña y responde el mismo error genérico"
-          - "Tras {{max_fallos}} fallos seguidos por cuenta o por IP, espera de {{espera_base}} que se duplica con cada fallo, hasta {{espera_tope}}"
-          - "El límite de intentos aplica a login, solicitudes de recuperación y verificación de códigos"
-          - "Los contadores de intentos viven en un almacenamiento compartido entre instancias y sobreviven a reinicios"
-          - "Cambiar la contraseña exige la actual y revoca las demás sesiones; restablecerla revoca todas"
-          - "El enlace de recuperación vale {{vida_recuperacion}} min, es de un solo uso y se invalida al pedir otro"
-          - "La solicitud de recuperación responde siempre lo mismo, exista o no la cuenta y aunque falle el envío"
-          - "Ningún administrador fija, ve ni recibe la contraseña de otro: solo dispara una activación o un restablecimiento"
-          - "«Debe cambiar la contraseña» lo hace cumplir el backend: esa sesión solo puede cambiarla"
-          - "Cambiar correo, teléfono o RUT exige autenticación reciente y verificar el valor nuevo con un token de un solo uso"
-          - "Al cambiar un correo o teléfono se avisa al valor anterior; nada se envía al nuevo mientras no esté verificado"
-        conformidad:
-          - id: AUTH-P01
-            titulo: El login no revela si la cuenta existe
-            cuando: se entra con un usuario inexistente y luego con uno existente y contraseña incorrecta
-            entonces: ambas respuestas son idénticas (código y mensaje) y su tiempo difiere en menos de {{diferencia_login}}
-          - id: AUTH-P02
-            titulo: Fuerza bruta bloqueada
-            cuando: se fallan {{max_fallos}} intentos seguidos contra la misma cuenta
-            entonces: el siguiente se rechaza con 429 aunque la contraseña sea correcta, y queda auditado
-          - id: AUTH-P03
-            titulo: Cambio de contraseña protegido
-            dado: un usuario con dos sesiones abiertas
-            cuando: cambia su contraseña desde una de ellas
-            entonces: se le exigió la actual y la otra sesión ya no puede renovar su token
-          - id: AUTH-P04
-            titulo: Contraseña sobre el máximo
-            cuando: se restablece con una contraseña más larga que {{largo_max_clave}}
-            entonces: responde 400 y la contraseña anterior sigue válida
-          - id: AUTH-P05
-            titulo: Contadores compartidos
-            cuando: los fallos llegan repartidos entre dos instancias del servicio
-            entonces: el bloqueo se aplica igual al superar {{max_fallos}}
-          - id: AUTH-P11
-            titulo: Login fallido sin datos personales en claro
-            cuando: se revisan los logs y la auditoría tras un login fallido con un correo inexistente
-            entonces: el correo no aparece en claro
-          - id: AUTH-P07
-            titulo: Recuperación de un solo uso
-            dado: un enlace de recuperación ya usado, vencido o reemplazado por otro más nuevo
-            cuando: se usa
-            entonces: se rechaza; el restablecimiento exitoso había cerrado todas las sesiones
-          - id: AUTH-P08
-            titulo: Recuperación sin enumeración
-            cuando: se pide recuperar una cuenta inexistente, una existente y una existente con el envío fallando
-            entonces: las tres respuestas son idénticas
-          - id: AUTH-P09
-            titulo: El administrador no fija contraseñas
-            cuando: un administrador edita un usuario enviando una contraseña
-            entonces: responde 400, la contraseña no cambia y el intento queda auditado
-          - id: AUTH-P10
-            titulo: Cambio de correo sin toma de cuenta
-            dado: un administrador cambia el correo de un usuario
-            cuando: se pide una invitación o una recuperación para ese usuario
-            entonces: nada llega al correo nuevo mientras no se verifique, y el correo anterior recibe un aviso
-      - valor: cognito
-        descripcion: AWS Cognito (Hosted UI, authorization code + PKCE), con federación si aplica.
-        depende_de:
-          - "Acceso al user pool y a la configuración de su app client"
-          - "Los claims que el proyecto usa (correo verificado, RUN si aplica) vienen en el access token, por atributos del pool o un disparador de pre-generación"
-        decisiones:
-          - "El access token de Cognito se canjea una vez por una sesión propia del proyecto; la API solo acepta los tokens propios"
-          - "El proyecto guarda el sub de Cognito como vínculo con su usuario interno, nunca credenciales"
-        invariantes:
-          - "El canje verifica la firma del token (JWKS, iss, client_id, token_use=access); nunca solo lo decodifica"
-          - "El canje recibe el access token, no el id token"
-          - "El RUN o el correo se toman de los claims verificados, nunca del cuerpo de la petición"
-        conformidad:
-          - id: AUTH-D01
-            titulo: Token sin firma válida rechazado
-            cuando: se canjea un JWT bien formado firmado con otra llave
-            entonces: responde 401 y no se crea ninguna sesión
-          - id: AUTH-D03
-            titulo: Identidad desde el token
-            cuando: el cuerpo de la petición trae un RUN distinto del que dice el token
-            entonces: se usa el del token y la diferencia queda auditada
-      - valor: supabase
-        descripcion: Supabase Auth, con correo o proveedores externos.
-        depende_de:
-          - "Proyecto Supabase con RLS activo en todas las tablas expuestas"
-        decisiones:
-          - "El JWT de Supabase Auth se canjea una vez por una sesión propia del proyecto, verificando su firma, iss y aud"
-        invariantes:
-          - "La app solo lleva la clave publicable; la clave secreta o service_role vive únicamente en el backend"
-          - "RLS activo en todas las tablas expuestas; ninguna política de escritura es siempre verdadera"
-        conformidad:
-          - id: AUTH-D02
-            titulo: La app no puede saltarse RLS
-            cuando: se inspecciona el binario o el bundle de la app
-            entonces: no contiene ninguna llave con rol service_role ni API keys de backend
-
   - id: identificador
     pregunta: ¿Con qué inicia sesión una persona?
-    si: {proveedor_identidad: propio}
     ayuda: El RUT es un identificador, no un secreto; nunca reemplaza la contraseña ni sirve solo para obtener un token.
     por_defecto: correo_o_rut
     opciones:
@@ -319,13 +210,12 @@ preguntas:
 
   - id: federacion
     pregunta: ¿Se puede entrar con una cuenta externa?
-    si: {proveedor_identidad: [propio, supabase]}
     por_defecto: ninguna
     opciones:
       - valor: ninguna
         descripcion: Solo credenciales propias.
       - valor: google
-        descripcion: Google (OIDC), directo o a través de un proveedor intermediario.
+        descripcion: Google (OIDC), integrado por el backend del proyecto.
         depende_de:
           - "Cliente OAuth de Google configurado por ambiente"
         invariantes:
@@ -373,7 +263,6 @@ preguntas:
 
   - id: alta_usuarios
     pregunta: ¿Cómo se crean las cuentas?
-    si: {proveedor_identidad: propio}
     por_defecto: invitacion
     opciones:
       - valor: autoregistro
@@ -424,7 +313,6 @@ preguntas:
 
   - id: recuperacion
     pregunta: ¿Por qué canal se recupera la contraseña?
-    si: {proveedor_identidad: propio}
     ayuda: Depende de qué dato verificado tienen los usuarios y de cuánto cuesta el canal.
     por_defecto: correo
     opciones:
@@ -560,6 +448,7 @@ preguntas:
           - "El token de la capa de datos es corto, lleva el rol mínimo y su sub es el id interno que leen las políticas; nunca es service_role"
           - "El secreto con que se firma ese token no se comparte entre productos ni entre ambientes"
           - "Los clientes no pueden escribir columnas de autorización (rol, estado, beneficios, hashes): permiso por columna o escritura solo por la API"
+          - "La app solo lleva la llave publicable de la capa de datos; la llave secreta o service_role vive únicamente en el backend"
         conformidad:
           - id: AUTH-B01
             titulo: Sin escalada escribiendo en la base
@@ -574,6 +463,10 @@ preguntas:
             titulo: Cada token en su capa
             cuando: el token de la capa de datos se usa contra la API, o el de la API contra la capa de datos
             entonces: ambos se rechazan
+          - id: AUTH-B05
+            titulo: Sin llaves de servidor en la app
+            cuando: se inspecciona el binario o el bundle de la app
+            entonces: no contiene ninguna llave con rol service_role ni API keys de backend
 
   - id: multi_organizacion
     pregunta: ¿Un usuario puede pertenecer a varias organizaciones?
@@ -729,23 +622,12 @@ pasos:
     verifica: [AUTH-C11, AUTH-C15, AUTH-C18]
   - id: sesiones
     accion: Guardar sesiones propias con refresh rotativo y detección de reúso, resolviendo permisos y estado al abrirlas y en cada renovación
-    produce: cambios de rol, suspensiones y cierres que aplican a tiempo, con cualquier proveedor de identidad
+    produce: cambios de rol, suspensiones y cierres que aplican a tiempo
     verifica: [AUTH-C03, AUTH-C04, AUTH-C05, AUTH-C06, AUTH-C07, AUTH-S01, AUTH-S03]
   - id: identidad-propia
-    si: {proveedor_identidad: propio}
     accion: Construir login, límites de intentos, cambio de contraseña, recuperación y cambio de identificador
     produce: identidad propia que no revela cuentas, resiste fuerza bruta y no deja tomar cuentas
     verifica: [AUTH-P01, AUTH-P02, AUTH-P03, AUTH-P04, AUTH-P05, AUTH-P07, AUTH-P08, AUTH-P09, AUTH-P10, AUTH-P11]
-  - id: identidad-cognito
-    si: {proveedor_identidad: cognito}
-    accion: Canjear el access token de Cognito, verificado, por una sesión propia y tomar la identidad solo de sus claims
-    produce: una API que no confía en tokens sin firma válida ni en identidades del cuerpo
-    verifica: [AUTH-D01, AUTH-D03]
-  - id: identidad-supabase
-    si: {proveedor_identidad: supabase}
-    accion: Canjear el JWT de Supabase Auth, verificado, por una sesión propia y dejar la clave secreta solo en el servidor
-    produce: clientes que no pueden saltarse RLS
-    verifica: [AUTH-D02]
   - id: identificador-correo
     si: {identificador: correo}
     accion: Normalizar el correo antes de guardarlo y de buscarlo
@@ -815,7 +697,7 @@ pasos:
     si: {capa_datos: rls_directo}
     accion: Emitir el token corto de la capa de datos con su propia llave y proteger las columnas de autorización
     produce: políticas por fila que no se saltan y tokens que no sirven fuera de su capa
-    verifica: [AUTH-B01, AUTH-B02, AUTH-B04]
+    verifica: [AUTH-B01, AUTH-B02, AUTH-B04, AUTH-B05]
   - id: organizaciones
     si: {multi_organizacion: si}
     accion: Modelar membresías usuario × organización × roles y evaluar cada permiso dentro de la organización del recurso
@@ -897,9 +779,12 @@ ficha:
       guardián de permiso recurso.accion que consulta la matriz versionada. Los clientes de sistema usan API keys
       propias y los eventos de seguridad van a una bitácora inmutable.
     decisiones:
+      - "Identidad propia: usuarios, credenciales, roles, permisos y sesiones viven en tablas del proyecto; ningún proveedor externo de identidad (Supabase Auth, Cognito, Firebase Auth u otro) es dueño de ellos"
+      - "El proyecto mantiene hashing, sesiones, recuperación y límites de intentos"
+      - "Contraseñas con {{hash_clave}}"
       - "Matriz de roles y permisos en un archivo versionado, compartido por backend y frontend"
       - "Permisos con forma recurso.accion; el comodín solo para un único rol de soporte del producto"
-      - "Sesión propia del proyecto con cualquier proveedor: access token JWT de {{vida_access}} min y refresh opaco"
+      - "Sesión propia del proyecto: access token JWT de {{vida_access}} min y refresh opaco"
       - "Refresh de {{entropia_refresh}}, guardado hasheado en la sesión y rotado en cada uso; la sesión vence tras {{inactividad_sesion}} días sin uso"
       - "Los permisos se resuelven en el servidor al abrir la sesión y en cada renovación; el token no los trae"
       - "Toda persona autenticada tiene un rol base de la matriz con los permisos sobre lo propio (perfil, sesiones, baja)"
@@ -914,6 +799,22 @@ ficha:
       - "Solo un rol, el de soporte del producto, tiene el comodín; si un rol de cliente necesita casi todo, recibe permisos explícitos"
       - "Nadie puede otorgar un rol con permisos que él mismo no tiene"
       - "Ningún privilegio se otorga por un correo, RUT o id escrito en el código; el primer administrador se crea con un arranque de un solo uso y auditado"
+      - "Contraseña de {{largo_min_clave}} a {{largo_max_clave}}, sin reglas de composición; se rechazan {{claves_comunes}} y las que contienen el identificador"
+      - "La contraseña se procesa igual al crearla, cambiarla y entrar: sin recortes ni cambios; un error del hash aborta la operación"
+      - "Un hash con parámetros más débiles que los vigentes se rehace en el siguiente login correcto"
+      - "Un login con usuario inexistente calcula igual un hash ficticio: el tiempo no revela si la cuenta existe"
+      - "El estado del usuario (suspendido, sin acceso, dado de baja) se revisa después de la contraseña y responde el mismo error genérico"
+      - "Tras {{max_fallos}} fallos seguidos por cuenta o por IP, espera de {{espera_base}} que se duplica con cada fallo, hasta {{espera_tope}}"
+      - "El límite de intentos aplica a login, solicitudes de recuperación y verificación de códigos"
+      - "Los contadores de intentos viven en un almacenamiento compartido entre instancias y sobreviven a reinicios"
+      - "Cambiar la contraseña exige la actual y revoca las demás sesiones; restablecerla revoca todas"
+      - "El enlace de recuperación vale {{vida_recuperacion}} min, es de un solo uso y se invalida al pedir otro"
+      - "La solicitud de recuperación responde siempre lo mismo, exista o no la cuenta y aunque falle el envío"
+      - "Ningún administrador fija, ve ni recibe la contraseña de otro: solo dispara una activación o un restablecimiento"
+      - "«Debe cambiar la contraseña» lo hace cumplir el backend: esa sesión solo puede cambiarla"
+      - "Cambiar correo, teléfono o RUT exige autenticación reciente y verificar el valor nuevo con un token de un solo uso"
+      - "Al cambiar un correo o teléfono se avisa al valor anterior; nada se envía al nuevo mientras no esté verificado"
+      - "Una base de datos o un servicio de tiempo real solo reciben tokens que emite el backend; la identidad nunca depende de su sistema de usuarios"
       - "JWT con algoritmo fijado en el verificador; alg none y algoritmos inesperados se rechazan"
       - "Claims obligatorios: iss, aud, sub (id interno), iat, exp, jti y kid en la cabecera"
       - "Cada token declara su propósito y el verificador exige el esperado: un token de recuperación no sirve como access token"
@@ -988,6 +889,49 @@ conformidad:
     dado: un administrador sin el permiso de administrar el sistema
     cuando: intenta asignarse o asignar a otro el rol de soporte
     entonces: responde 403 y queda auditado
+  - id: AUTH-P01
+    titulo: El login no revela si la cuenta existe
+    cuando: se entra con un usuario inexistente y luego con uno existente y contraseña incorrecta
+    entonces: ambas respuestas son idénticas (código y mensaje) y su tiempo difiere en menos de {{diferencia_login}}
+  - id: AUTH-P02
+    titulo: Fuerza bruta bloqueada
+    cuando: se fallan {{max_fallos}} intentos seguidos contra la misma cuenta
+    entonces: el siguiente se rechaza con 429 aunque la contraseña sea correcta, y queda auditado
+  - id: AUTH-P03
+    titulo: Cambio de contraseña protegido
+    dado: un usuario con dos sesiones abiertas
+    cuando: cambia su contraseña desde una de ellas
+    entonces: se le exigió la actual y la otra sesión ya no puede renovar su token
+  - id: AUTH-P04
+    titulo: Contraseña sobre el máximo
+    cuando: se restablece con una contraseña más larga que {{largo_max_clave}}
+    entonces: responde 400 y la contraseña anterior sigue válida
+  - id: AUTH-P05
+    titulo: Contadores compartidos
+    cuando: los fallos llegan repartidos entre dos instancias del servicio
+    entonces: el bloqueo se aplica igual al superar {{max_fallos}}
+  - id: AUTH-P11
+    titulo: Login fallido sin datos personales en claro
+    cuando: se revisan los logs y la auditoría tras un login fallido con un correo inexistente
+    entonces: el correo no aparece en claro
+  - id: AUTH-P07
+    titulo: Recuperación de un solo uso
+    dado: un enlace de recuperación ya usado, vencido o reemplazado por otro más nuevo
+    cuando: se usa
+    entonces: se rechaza; el restablecimiento exitoso había cerrado todas las sesiones
+  - id: AUTH-P08
+    titulo: Recuperación sin enumeración
+    cuando: se pide recuperar una cuenta inexistente, una existente y una existente con el envío fallando
+    entonces: las tres respuestas son idénticas
+  - id: AUTH-P09
+    titulo: El administrador no fija contraseñas
+    cuando: un administrador edita un usuario enviando una contraseña
+    entonces: responde 400, la contraseña no cambia y el intento queda auditado
+  - id: AUTH-P10
+    titulo: Cambio de correo sin toma de cuenta
+    dado: un administrador cambia el correo de un usuario
+    cuando: se pide una invitación o una recuperación para ese usuario
+    entonces: nada llega al correo nuevo mientras no se verifique, y el correo anterior recibe un aviso
   - id: AUTH-C10
     titulo: Sin tokens en la URL
     cuando: se envía un access token válido como parámetro de la URL, en la API o al abrir un WebSocket
