@@ -1,0 +1,533 @@
+# Blueprint QDD: branding del proyecto (descubrir la marca y aplicarla igual en todo).
+# Cómo encontrar la marca propia de un proyecto con una entrevista guiada, escribirla como plataforma de marca y
+# derivar de ella, desde una sola fuente, la voz, los nombres, el logo, el color, la tipografía, las formas y las
+# plantillas de cada punto de contacto (web, app, correo, tiendas), con pruebas que impiden que se separen.
+# Destilado de un producto en producción cuya marca se veía profesional (paleta mínima de altísimo contraste, gesto
+# tipográfico propio, comprobantes iguales en web y correo, voz cercana con errores que dicen si hubo cobro) y de sus
+# fallos: sin documento de marca, tokens copiados en cuatro lugares que derivaron en dos acentos y dos rojos, dos
+# logos, cuatro grafías del nombre, siete lemas compitiendo, pares de color bajo el contraste mínimo, pesos de fuente
+# sintetizados, un selector de tema sin efecto y textos de relleno a la vista.
+#
+#   qdd blueprint add project-branding
+#   qdd blueprint apply project-branding
+#   qdd modules approve project-branding
+id: project-branding
+nombre: Branding del proyecto
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+descripcion: >
+  La marca se descubre con la persona dueña del proyecto en una entrevista guiada y queda escrita como plataforma de
+  marca (propósito, promesa, público, valores, personalidad, nombre y lema). De ella se derivan una guía de voz, una
+  arquitectura de nombres, un kit de logo y una sola fuente de tokens que genera el tema de cada plataforma. Cada
+  decisión visual o verbal nombra el atributo de la marca que expresa, y las pruebas impiden colores sueltos,
+  contraste insuficiente, nombres distintos por plataforma y textos fuera de la voz.
+
+alcance:
+  incluye:
+    - "Descubrimiento guiado de la marca y su registro como plataforma de marca aprobada por la persona"
+    - "Arquitectura de nombres: marca madre, producto y grafía única por punto de contacto"
+    - "Lema oficial y lista cerrada de lemas secundarios"
+    - "Guía de voz: tratamiento, variante regional, formatos, mayúsculas, emojis y glosario canónico"
+    - "Plantillas de microcopy: error, vacío, éxito, confirmación y asunto de correo"
+    - "Kit de logo: SVG maestro, variantes, resguardo, tamaño mínimo, ícono de app, splash, favicon, imagen para compartir y manifest"
+    - "Color con roles semánticos, modos de color y contraste verificado"
+    - "Tipografía con roles y escala con nombres; formas de firma, espaciado, iconografía, imagen de respaldo y movimiento"
+    - "Una fuente única de tokens que genera el tema de cada plataforma"
+    - "Certificación de consistencia: pruebas automáticas y verificación visual versionada en celular y escritorio"
+  excluye:
+    - "El registro legal de la marca y la búsqueda de disponibilidad del nombre"
+    - "La producción de fotografía, video o ilustración a medida"
+    - "Campañas de marketing, publicidad pagada y SEO"
+    - "Los flujos y la arquitectura de información del producto"
+    - "La infraestructura y el despliegue del front (ver front-end-manager)"
+
+vocabulario:
+  - termino: plataforma de marca
+    definicion: >
+      El documento que dice quién es la marca: propósito, promesa, público, valores, personalidad, nombre y su razón,
+      lema, referentes y antirreferentes. Todo lo demás se deriva de él.
+  - termino: atributo
+    definicion: Un valor o un rasgo de personalidad de la plataforma; cada decisión del sistema nombra el atributo que expresa.
+  - termino: punto de contacto
+    definicion: Cada lugar donde una persona ve la marca (pantalla, ícono, nombre de la app, pestaña, correo, ficha de tienda, enlace compartido).
+  - termino: token
+    definicion: Un valor de diseño con nombre (color, tamaño, radio, duración) guardado en la fuente única y usado por su nombre, nunca por su valor.
+  - termino: rol semántico
+    definicion: Lo que un token significa (marca, fondo, superficie, texto, error), independiente del valor; cada rol tiene su par «sobre» para el contenido encima.
+  - termino: firma
+    definicion: Una forma reconocible de la marca (p. ej. un corte de esquina, una sombra desplazada) implementada una sola vez como componente.
+  - termino: ADN
+    definicion: Cuando la marca elige una firma por plataforma, lo que es idéntico en todas (paleta, tipografía de display, logo, estilo del botón principal).
+  - termino: isotipo
+    definicion: El símbolo del logo sin texto; el logotipo es el nombre escrito con su tipografía; el horizontal los combina.
+  - termino: área de resguardo
+    definicion: El espacio libre alrededor del logo donde no puede haber otro elemento.
+
+parametros:
+  - id: idioma_base
+    pregunta: ¿En qué idioma y variante regional habla la marca primero?
+    ayuda: Fija ortografía, vocabulario y formatos de fecha, hora y moneda; otros idiomas se traducen desde este.
+    tipo: texto
+    por_defecto: "es-CL"
+    ejemplos: ["es-CL", "es-MX", "en-US", "pt-BR"]
+  - id: tratamiento
+    pregunta: ¿Cómo trata la marca a las personas?
+    tipo: texto
+    por_defecto: "tú"
+    ejemplos: ["tú", "usted", "vos"]
+  - id: formato_asunto
+    pregunta: ¿Con qué forma se escriben los asuntos de los correos de la marca?
+    tipo: texto
+    por_defecto: "<mensaje> · <marca>"
+    ejemplos: ["<mensaje> · <marca>", "<marca>: <mensaje>"]
+  - id: max_lemas
+    pregunta: ¿Cuántos lemas secundarios puede tener la marca además del oficial?
+    ayuda: Muchos lemas a la vez diluyen la marca; cada uno tiene su uso declarado.
+    tipo: numero
+    por_defecto: "3"
+    ejemplos: ["0", "3", "5"]
+  - id: max_valores
+    pregunta: ¿Cuántos valores puede declarar la plataforma de marca como máximo?
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["3", "4", "5"]
+  - id: tamano_minimo_logo
+    pregunta: ¿Cuál es el alto mínimo, en píxeles, al que se muestra el logo horizontal?
+    tipo: numero
+    por_defecto: "24"
+    ejemplos: ["16", "24", "32"]
+  - id: resguardo
+    pregunta: ¿Cuánto espacio libre rodea al logo, como fracción de la altura del isotipo?
+    tipo: numero
+    por_defecto: "0.25"
+    ejemplos: ["0.25", "0.5"]
+  - id: ancho_celular
+    pregunta: ¿A qué ancho, en píxeles, se capturan las pantallas de celular para la verificación visual?
+    tipo: numero
+    por_defecto: "390"
+    ejemplos: ["360", "390", "412"]
+  - id: ancho_escritorio
+    pregunta: ¿A qué ancho, en píxeles, se capturan las pantallas de escritorio?
+    tipo: numero
+    por_defecto: "1440"
+    ejemplos: ["1280", "1440", "1920"]
+
+constantes:
+  - id: contraste_texto
+    valor: "4.5:1"
+    por_que: mínimo WCAG AA para texto normal; por debajo, parte de las personas no puede leerlo
+  - id: contraste_grande
+    valor: "3:1"
+    por_que: mínimo WCAG AA para texto grande (desde 24 px, o 18,66 px en negrita)
+  - id: contraste_ui
+    valor: "3:1"
+    por_que: mínimo WCAG para bordes de campos, íconos con significado y el anillo de foco
+  - id: contraste_texto_aaa
+    valor: "7:1"
+    por_que: nivel WCAG AAA para texto normal
+  - id: contraste_grande_aaa
+    valor: "4.5:1"
+    por_que: nivel WCAG AAA para texto grande
+  - id: imagen_compartir
+    valor: 1200×630 px
+    por_que: el tamaño que las redes y los mensajeros muestran sin recortar al compartir un enlace
+  - id: icono_tienda
+    valor: 1024×1024 px sin transparencia
+    por_que: el tamaño maestro que piden las tiendas; iOS rechaza el ícono con canal alfa
+  - id: zona_segura_adaptativo
+    valor: el círculo central de 66 dp de diámetro en el lienzo de 108 dp
+    por_que: Android recorta el ícono adaptativo con máscaras distintas por fabricante; fuera de esa zona el logo se corta
+  - id: formato_tokens
+    valor: Design Tokens (W3C DTCG) en JSON
+    por_que: un formato abierto que leen herramientas de diseño y generadores para cualquier plataforma, sin amarrarse a una
+
+preguntas:
+  - id: lenguaje_visual
+    pregunta: ¿La marca usa un solo lenguaje visual en todas las plataformas, o una firma por plataforma con un ADN común?
+    ayuda: Una firma por plataforma aprovecha lo propio de cada una (p. ej. web clara, app oscura), pero exige un ADN idéntico.
+    por_defecto: unico
+    opciones:
+      - valor: unico
+        descripcion: Las mismas formas, tipografía, firma y modo de color en web, app y correo.
+        invariantes:
+          - "Todas las plataformas usan la misma firma, generada del mismo token"
+        conformidad:
+          - id: PB-U01
+            titulo: Una sola firma
+            cuando: se comparan los temas generados de cada plataforma
+            entonces: radio, borde, sombra y firma tienen el mismo valor en todos
+      - valor: adn_y_firma
+        descripcion: Cada plataforma tiene su firma declarada, y el ADN es idéntico en todas.
+        decisiones:
+          - "La plataforma de marca lista qué es ADN (paleta, tipografía de display, logo, botón principal) y la firma de cada plataforma, con el atributo que expresa"
+        invariantes:
+          - "Los tokens del ADN tienen el mismo valor en todas las plataformas; solo los tokens de firma pueden variar por plataforma"
+        conformidad:
+          - id: PB-A01
+            titulo: ADN idéntico
+            dado: una plataforma que cambia un token del ADN (p. ej. el color de marca)
+            cuando: corre la prueba de tokens
+            entonces: falla y nombra el token y la plataforma
+          - id: PB-A02
+            titulo: Firma declarada
+            cuando: una plataforma usa un token de firma que la plataforma de marca no declara para ella
+            entonces: la prueba de tokens falla
+
+  - id: modo_color
+    pregunta: ¿En qué modos de color se muestra la marca?
+    por_defecto: claro
+    opciones:
+      - valor: claro
+        descripcion: Solo claro.
+        invariantes:
+          - "No se ofrece un selector de tema"
+        conformidad:
+          - id: PB-M01
+            titulo: Sin selector muerto
+            cuando: se recorren los ajustes de cada plataforma
+            entonces: no hay un selector de tema
+      - valor: oscuro
+        descripcion: Solo oscuro.
+        invariantes:
+          - "No se ofrece un selector de tema"
+        conformidad:
+          - id: PB-M02
+            titulo: Sin selector muerto
+            cuando: se recorren los ajustes de cada plataforma
+            entonces: no hay un selector de tema
+      - valor: ambos
+        descripcion: Claro y oscuro; sigue al sistema y la persona puede fijarlo.
+        invariantes:
+          - "Cada rol de color tiene un valor por modo, y todos los pares cumplen el contraste en los dos modos"
+        conformidad:
+          - id: PB-M03
+            titulo: El selector funciona
+            cuando: la persona elige el modo oscuro y después el claro
+            entonces: cada pantalla cambia de modo y la elección se recuerda al volver a abrir
+          - id: PB-M04
+            titulo: Contraste en los dos modos
+            cuando: corre la prueba de contraste
+            entonces: evalúa cada par en claro y en oscuro
+
+  - id: nivel_contraste
+    pregunta: ¿Qué nivel de contraste exige la marca?
+    por_defecto: aa
+    opciones:
+      - valor: aa
+        descripcion: WCAG AA, lo que pide la ley de accesibilidad en la mayoría de los países.
+        invariantes:
+          - "Todo texto cumple {{contraste_texto}} sobre su fondo, el texto grande {{contraste_grande}} y los elementos de interfaz {{contraste_ui}}"
+        conformidad:
+          - id: PB-X02
+            titulo: Nivel AA
+            dado: un par de texto normal bajo el mínimo AA, o un borde de campo bajo el mínimo de interfaz
+            cuando: corre la prueba de contraste
+            entonces: falla y nombra el par
+      - valor: aaa
+        descripcion: WCAG AAA para el texto, más legible para baja visión.
+        invariantes:
+          - "Todo texto cumple {{contraste_texto_aaa}} sobre su fondo, el texto grande {{contraste_grande_aaa}} y los elementos de interfaz {{contraste_ui}}"
+        conformidad:
+          - id: PB-X01
+            titulo: Nivel AAA
+            dado: un par de texto normal que cumple AA pero no AAA
+            cuando: corre la prueba de contraste
+            entonces: falla y nombra el par
+
+  - id: emojis
+    pregunta: ¿La marca usa emojis en sus textos?
+    por_defecto: nunca
+    opciones:
+      - valor: nunca
+        descripcion: Ningún texto visible, correo ni notificación lleva emojis.
+        conformidad:
+          - id: PB-E01
+            titulo: Sin emojis
+            cuando: se revisan los textos de la interfaz, los correos y las notificaciones
+            entonces: ninguno contiene un emoji
+      - valor: lista_cerrada
+        descripcion: Solo los emojis de una lista cerrada, en los contextos que la guía de voz nombra.
+        invariantes:
+          - "Cada emoji permitido tiene su significado y su contexto, y nunca reemplaza una palabra"
+        conformidad:
+          - id: PB-E02
+            titulo: Solo los de la lista
+            cuando: un texto usa un emoji que no está en la lista o fuera de su contexto
+            entonces: la prueba de textos falla y lo nombra
+
+pasos:
+  - id: descubrir
+    accion: Entrevistar a la persona dueña del proyecto con las preguntas de la plataforma de marca, sin responder por ella
+    produce: las respuestas de la persona sobre propósito, promesa, público, valores, personalidad, referentes, nombre y lema
+    verifica: [PB-C01]
+  - id: plataforma
+    accion: Escribir la plataforma de marca con esas respuestas y pedir su aprobación
+    produce: un documento único de quién es la marca, del que se deriva todo lo demás
+    verifica: [PB-C01, PB-C02]
+  - id: nombres
+    accion: Escribir la arquitectura de nombres con la grafía de cada punto de contacto y aplicarla
+    produce: el mismo nombre en la app, el ícono, la pestaña, el manifest, los correos y las tiendas
+    verifica: [PB-C03, PB-C04]
+  - id: voz
+    accion: Escribir la guía de voz con {{tratamiento}}, {{idioma_base}}, formatos, mayúsculas, glosario y plantillas
+    produce: textos que suenan a la misma marca en cualquier pantalla, correo o notificación
+    verifica: [PB-C05, PB-C06, PB-C07, PB-C08, PB-C09]
+  - id: tokens
+    accion: Crear la fuente única de tokens en {{formato_tokens}}, con roles semánticos y el atributo que expresa cada uno
+    produce: un solo lugar donde vive cada valor de diseño
+    verifica: [PB-C10, PB-C11]
+  - id: generar
+    accion: Generar desde la fuente el tema de cada plataforma y las constantes de los correos, y prohibir valores sueltos en el código
+    produce: plataformas que no pueden separarse porque leen los mismos valores
+    verifica: [PB-C12, PB-C13]
+  - id: contraste
+    accion: Probar el contraste de cada par de roles que la interfaz usa y declarar dónde puede ir el color de marca como texto
+    produce: una marca que todas las personas pueden leer
+    verifica: [PB-C14]
+  - id: tipografia
+    accion: Definir los roles tipográficos y la escala con nombres, y cargar exactamente los pesos que se usan
+    produce: jerarquía estable y sin pesos sintetizados por el navegador
+    verifica: [PB-C15, PB-C16]
+  - id: formas
+    accion: Definir radios, bordes, sombras, espaciado, iconografía y movimiento como tokens, e implementar cada firma una sola vez
+    produce: componentes con la misma forma en toda la plataforma
+    verifica: [PB-C17, PB-C18]
+  - id: logo
+    accion: Dibujar el SVG maestro y generar desde él cada variante, el ícono de app, el splash, el favicon, la imagen para compartir y el manifest
+    produce: el mismo logo, con la misma geometría y color, en cada punto de contacto
+    verifica: [PB-C19, PB-C20, PB-C21, PB-C22]
+  - id: plantillas
+    accion: Construir las plantillas transaccionales (correo, comprobante, página de resultado) con los mismos tokens y estructura
+    produce: comprobantes reconocibles como de la marca en web, app y correo
+    verifica: [PB-C23]
+  - id: respaldo
+    accion: Versionar una imagen de respaldo de marca y mostrarla cuando falta o falla una imagen
+    produce: ninguna pantalla con fotos de stock sin licencia ni imágenes rotas
+    verifica: [PB-C24]
+  - id: verificar
+    accion: Capturar las pantallas clave que lista la guía a {{ancho_celular}} y {{ancho_escritorio}} px en cada modo, versionarlas y que una persona las revise en el PR de cada cambio de marca
+    produce: evidencia visual reproducible de que la marca se ve igual en todo
+    verifica: [PB-C25, PB-C26]
+  - id: firma-unica
+    si: {lenguaje_visual: unico}
+    accion: Generar una sola firma para todas las plataformas
+    produce: las mismas formas en todo
+    verifica: [PB-U01]
+  - id: adn
+    si: {lenguaje_visual: adn_y_firma}
+    accion: Declarar el ADN y la firma de cada plataforma y probar que el ADN no cambia
+    produce: plataformas con personalidad propia que se reconocen como la misma marca
+    verifica: [PB-A01, PB-A02]
+  - id: modo-claro
+    si: {modo_color: claro}
+    accion: Generar solo los valores claros y no ofrecer selector de tema
+    produce: un solo modo coherente
+    verifica: [PB-M01]
+  - id: modo-oscuro
+    si: {modo_color: oscuro}
+    accion: Generar solo los valores oscuros y no ofrecer selector de tema
+    produce: un solo modo coherente
+    verifica: [PB-M02]
+  - id: modo-ambos
+    si: {modo_color: ambos}
+    accion: Generar los valores de los dos modos y un selector que sigue al sistema y recuerda la elección
+    produce: los dos modos con el mismo contraste y la misma marca
+    verifica: [PB-M03, PB-M04]
+  - id: contraste-aa
+    si: {nivel_contraste: aa}
+    accion: Probar el contraste con los umbrales AA
+    produce: texto e interfaz legibles según la norma
+    verifica: [PB-X02]
+  - id: contraste-aaa
+    si: {nivel_contraste: aaa}
+    accion: Probar el contraste con los umbrales AAA
+    produce: texto legible para baja visión
+    verifica: [PB-X01]
+  - id: sin-emojis
+    si: {emojis: nunca}
+    accion: Probar que ningún texto lleva emojis
+    produce: una voz sin emojis
+    verifica: [PB-E01]
+  - id: emojis-lista
+    si: {emojis: lista_cerrada}
+    accion: Declarar la lista de emojis con su contexto y probar los textos contra ella
+    produce: emojis con significado, nunca de relleno
+    verifica: [PB-E02]
+
+ficha:
+  nombre: Branding del proyecto
+  objetivo_operativo:
+    problema: >
+      Una marca se reconoce y se confía cuando se ve y suena igual en cada pantalla, ícono, correo y ficha de tienda.
+      Sin una definición escrita y una sola fuente de valores, cada plataforma la reinterpreta: aparecen dos tonos del
+      mismo color, varios logos, el nombre escrito de varias formas, lemas que compiten y textos que no se leen.
+    usuarios: >
+      La persona dueña del proyecto, que define la marca; quien diseña y desarrolla cada plataforma, que la aplica; y
+      las personas que usan el producto, que la reconocen.
+    criterio_de_exito: >
+      La plataforma de marca está escrita y aprobada; todos los escenarios de conformidad pasan como pruebas
+      automatizadas; y las capturas versionadas de las pantallas clave muestran la misma marca en celular y escritorio.
+  objetivo_tecnologico:
+    arquitectura: >
+      La plataforma de marca y la guía de voz son documentos versionados en el repositorio. La fuente única de tokens
+      (en el formato abierto que fija el paso de tokens) nombra cada valor por su rol y el atributo que expresa; un generador produce el tema de cada
+      plataforma (variables CSS, tema de la app, constantes de los correos) y los archivos generados no se editan a
+      mano. El SVG maestro del logo genera todas sus variantes y los íconos. Pruebas automáticas verifican contraste,
+      nombres, glosario, valores sueltos, pesos tipográficos y recursos del logo; la verificación visual se versiona.
+    decisiones:
+      - "La marca se descubre con la persona: el agente pregunta y escribe, nunca inventa propósito, valores ni nombre"
+      - "La plataforma de marca es la raíz: cada token, regla de voz y forma de firma nombra el atributo que expresa"
+      - "Los tokens tienen tres niveles: primitivos (la paleta), semánticos (roles) y de componente; el código solo usa semánticos o de componente"
+      - "Los temas de cada plataforma y las constantes de los correos se generan de la fuente única; nunca se copian"
+      - "El logo vive como un SVG maestro y todo recurso gráfico de marca se genera desde él"
+      - "Los cambios de marca entran por PR con las capturas de verificación regeneradas"
+      - "Las decisiones de marca que se cambian quedan en un registro de decisiones con su porqué"
+    invariantes:
+      - "La plataforma de marca tiene propósito, promesa, público, entre uno y {{max_valores}} valores con su conducta observable, personalidad con lo que la marca es y lo que no es, referentes, nombre canónico con su razón y un lema oficial"
+      - "Ninguna respuesta de la entrevista la escribe el agente sin que la persona la haya dado o aprobado"
+      - "Hay un lema oficial y hasta {{max_lemas}} secundarios (pueden ser cero), cada secundario con su uso; viven en el catálogo de textos marcados como lema y la interfaz solo los muestra desde ahí"
+      - "Cada punto de contacto usa la grafía que la arquitectura de nombres le asigna; ninguno muestra un nombre técnico de paquete"
+      - "Los asuntos de correo siguen el formato {{formato_asunto}}"
+      - "Todo texto visible usa el tratamiento {{tratamiento}} y la variante {{idioma_base}}"
+      - "Las fechas, horas y montos se formatean en un solo módulo con los datos del locale {{idioma_base}} (del sistema o de una biblioteca con datos CLDR), con los formatos que fija la guía de voz; nunca a mano en cada pantalla"
+      - "Los textos usan los términos canónicos del glosario y nunca sus sinónimos prohibidos"
+      - "Un error visible dice qué pasó, qué consecuencia tuvo y qué hacer; nunca muestra un mensaje técnico ni una excepción"
+      - "Un estado vacío dice qué falta y ofrece la acción para empezar"
+      - "Ningún build de producción muestra textos de relleno, datos inventados ni jerga interna del equipo"
+      - "Cada token semántico tiene su rol y el atributo que expresa; los de color tienen un valor por cada modo que la marca usa, guardado en las extensiones del token porque el formato aún no define modos"
+      - "El código de cada plataforma no contiene colores, familias tipográficas, tamaños de fuente ni duraciones literales fuera de los archivos generados"
+      - "Los archivos generados coinciden con lo que produce el generador desde la fuente actual"
+      - "Los pares de rol de texto sobre rol de fondo permitidos se declaran en la fuente de tokens, cada uno cumple el contraste del nivel elegido y el código no combina pares no declarados"
+      - "El color de marca como texto solo va sobre los fondos que la guía declara con contraste suficiente"
+      - "Cada rol tipográfico tiene una familia y una escala con nombres; los pesos usados son exactamente los cargados"
+      - "Las fuentes se empaquetan o se sirven desde el propio dominio, con su licencia registrada"
+      - "Cada firma está implementada una sola vez por plataforma como componente o estilo compartido"
+      - "Donde un cliente no puede mostrar una forma (p. ej. sombras en correo), se degrada a un equivalente declarado en la guía; el token es el mismo"
+      - "Las animaciones usan duraciones y curvas de los tokens y se reducen cuando el sistema pide reducir el movimiento"
+      - "Cada variante del logo se genera del SVG maestro; el horizontal nunca se muestra en una caja cuadrada (contando el área de resguardo)"
+      - "El logo se muestra con su área de resguardo de {{resguardo}} veces la altura del isotipo y el horizontal nunca con menos de {{tamano_minimo_logo}} px de alto sin contar el resguardo; favicons e íconos de app siguen las zonas de su plataforma"
+      - "El logo no se recolorea con filtros; las variantes monocromas son archivos generados"
+      - "El ícono de tienda mide {{icono_tienda}}; el ícono adaptativo de Android mantiene el isotipo dentro de {{zona_segura_adaptativo}}"
+      - "El splash nativo usa el mismo fondo y logo que la primera pantalla de la app, sin salto visible"
+      - "La web tiene favicon de marca, imagen para compartir de {{imagen_compartir}} y manifest con el nombre que le asigna la arquitectura de nombres y los colores de los tokens"
+      - "Las plantillas transaccionales comparten estructura y tokens en web, app y correo"
+      - "Toda imagen que falta o falla muestra la imagen de respaldo de marca"
+      - "Las capturas de verificación se versionan en el repositorio, nunca como rutas locales"
+
+conformidad:
+  - id: PB-C01
+    titulo: Plataforma completa
+    cuando: se valida el documento de plataforma de marca
+    entonces: tiene todas sus secciones con contenido, cada valor con su conducta observable, y queda registrado quién la aprobó y cuándo
+  - id: PB-C02
+    titulo: Lemas cerrados
+    dado: un texto marcado como lema que no está en la lista de lemas
+    cuando: corre la prueba de textos
+    entonces: falla y nombra el texto
+  - id: PB-C03
+    titulo: Mismo nombre en todo
+    cuando: se comparan el nombre visible de Android e iOS, el título web, el manifest, la ficha de tienda, la imagen para compartir y el remitente de correo con la arquitectura de nombres
+    entonces: cada uno es la grafía asignada; uno distinto o un nombre de paquete hace fallar la prueba
+  - id: PB-C04
+    titulo: Asunto con formato
+    cuando: se generan los correos de la marca
+    entonces: cada asunto sigue el formato declarado
+  - id: PB-C05
+    titulo: Glosario canónico
+    dado: un texto que usa un sinónimo prohibido del glosario
+    cuando: corre la prueba de textos
+    entonces: falla y propone el término canónico
+  - id: PB-C06
+    titulo: Error con explicación
+    dado: una operación que falla con una excepción técnica
+    cuando: la interfaz muestra el error
+    entonces: el texto viene de la plantilla de error, dice qué pasó, qué consecuencia tuvo y qué hacer, y no contiene el mensaje de la excepción
+  - id: PB-C07
+    titulo: Vacío con salida
+    cuando: una lista no tiene elementos
+    entonces: muestra qué falta y un botón para empezar, sin un conteo en cero
+  - id: PB-C08
+    titulo: Formatos del locale
+    cuando: se muestran una fecha, una hora y un monto
+    entonces: siguen el formato del locale de la marca
+  - id: PB-C09
+    titulo: Sin relleno
+    dado: un texto de relleno, un dato inventado o un término interno de la lista de prohibidos en el build de producción
+    cuando: corre la prueba de textos
+    entonces: falla y lo nombra
+  - id: PB-C10
+    titulo: Token completo
+    dado: un token semántico sin rol, sin valor para un modo o sin atributo
+    cuando: se valida la fuente de tokens
+    entonces: falla y nombra el token
+  - id: PB-C11
+    titulo: Solo semánticos en el código
+    cuando: el código usa un token primitivo directamente
+    entonces: la prueba de estilos falla e indica el archivo
+  - id: PB-C12
+    titulo: Generado al día
+    dado: un archivo generado editado a mano o una fuente cambiada sin regenerar
+    cuando: corre la verificación del pipeline
+    entonces: falla mostrando la diferencia
+  - id: PB-C13
+    titulo: Sin valores sueltos
+    dado: un color, una familia tipográfica, un tamaño de fuente o una duración literal en el código de una plataforma
+    cuando: corre la prueba de estilos
+    entonces: falla e indica el archivo y la línea
+  - id: PB-C14
+    titulo: Contraste probado
+    dado: un par de roles usado por la interfaz de cualquier plataforma (web, app o correo) que no cumple el contraste del nivel elegido
+    cuando: corre la prueba de contraste
+    entonces: falla con el par y su razón de contraste
+  - id: PB-C15
+    titulo: Pesos cargados
+    dado: un estilo que usa un peso de fuente que no se carga
+    cuando: corre la prueba tipográfica
+    entonces: falla y nombra el peso y la familia
+  - id: PB-C16
+    titulo: Escala con nombres
+    cuando: un texto usa un tamaño que no está en la escala
+    entonces: la prueba tipográfica falla
+  - id: PB-C17
+    titulo: Firma única
+    dado: una segunda definición de una firma en la misma plataforma
+    cuando: corre la prueba de estilos
+    entonces: falla y nombra las dos definiciones
+  - id: PB-C18
+    titulo: Movimiento reducido
+    dado: el sistema pide reducir el movimiento
+    cuando: se muestra una animación de marca
+    entonces: se reduce a un cambio sin desplazamiento o se omite
+  - id: PB-C19
+    titulo: Variantes del maestro
+    cuando: se regeneran las variantes del logo desde el SVG maestro
+    entonces: coinciden con las versionadas, incluidas las monocromas clara y oscura
+  - id: PB-C20
+    titulo: Logo en su caja
+    cuando: se renderiza el logo horizontal en cada lugar donde aparece
+    entonces: mantiene su proporción, su área de resguardo y al menos el alto mínimo
+  - id: PB-C21
+    titulo: Íconos de app
+    cuando: se validan los íconos generados
+    entonces: el de tienda tiene el tamaño de tienda sin transparencia y el adaptativo deja el isotipo dentro de la zona segura
+  - id: PB-C22
+    titulo: Presencia web
+    cuando: se pide la página de inicio
+    entonces: trae favicon de marca, imagen para compartir del tamaño declarado y manifest con el nombre que la arquitectura de nombres le asigna y los colores de los tokens
+  - id: PB-C23
+    titulo: Comprobante igual en todo
+    cuando: se generan el comprobante de la web y su correo
+    entonces: tienen la misma estructura, el mismo nombre y los mismos colores de la fuente de tokens
+  - id: PB-C24
+    titulo: Imagen de respaldo
+    cuando: una imagen de contenido falta o falla al cargar
+    entonces: se muestra la imagen de respaldo de marca
+  - id: PB-C25
+    titulo: Capturas versionadas
+    cuando: un PR cambia la fuente de tokens, el logo o la guía de voz
+    entonces: incluye las capturas regeneradas de las pantallas clave al ancho de celular y, donde la plataforma lo tiene, al de escritorio, en cada modo de color que la marca usa
+  - id: PB-C26
+    titulo: Splash sin salto
+    cuando: se abre la app en frío, en el modo de color del sistema
+    entonces: el splash nativo y la primera pantalla tienen el mismo fondo y el mismo logo
