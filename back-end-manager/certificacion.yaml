@@ -1,0 +1,186 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: back-end-manager@1.0.0
+huella: 0fcfe086d99fa32fa906cb8517c4c165628f448c6d8db25fb4dce03fd3a1959d
+fecha: 2026-11-02 23:52
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        ambientes: qa_y_prod
+        arquitectura: arm64
+        base_datos: postgres_transaccion
+        capa_cors: aplicacion
+        ci: github_actions
+        concurrencia: "50"
+        conexiones: "2"
+        config_dinamica: "no"
+        cors: lista
+        credenciales_ci: oidc
+        empaquetado: zip
+        frontend: s3_cloudfront
+        gateway: http_api
+        infraestructura: serverless
+        lenguaje: go
+        max_cuerpo: "1024"
+        memoria: "512"
+        presupuesto: "25"
+        red: sin_vpc
+        region: us-east-1
+        retencion_logs: "30"
+        secretos: variables_ci
+        timeout: "29"
+        trabajo_largo: cola
+        vida_url: "15"
+        vuelta_atras: redesplegar
+      escenarios:
+        - BEM-C01
+        - BEM-C02
+        - BEM-C03
+        - BEM-C04
+        - BEM-C05
+        - BEM-C06
+        - BEM-C07
+        - BEM-C08
+        - BEM-C09
+        - BEM-C10
+        - BEM-C11
+        - BEM-C12
+        - BEM-C13
+        - BEM-C14
+        - BEM-C15
+        - BEM-C16
+        - BEM-C17
+        - BEM-C18
+        - BEM-C19
+        - BEM-C20
+        - BEM-C21
+        - BEM-C22
+        - BEM-C23
+        - BEM-C24
+        - BEM-C25
+        - BEM-C26
+        - BEM-C27
+        - BEM-G01
+        - BEM-H01
+        - BEM-Z01
+        - BEM-A01
+        - BEM-S01
+        - BEM-S02
+        - BEM-O01
+        - BEM-E01
+        - BEM-K01
+        - BEM-K02
+        - BEM-K04
+        - BEM-V02
+        - BEM-D01
+        - BEM-Q01
+        - BEM-F01
+        - BEM-F02
+        - BEM-F03
+        - BEM-M01
+        - BEM-B01
+      lenguaje: go
+      comando: go test -count=1 ./...
+      resultado: pruebas ✅ · escenarios con prueba 46/46
+      supuestos:
+        - 'Paso 12 / frontend: no hay código de SPA en la carpeta; se prueba el pipeline (scripts/frontend_deploy.sh con un aws de prueba) y el manifiesto de CloudFront, no una página real.'
+        - 'BEM-F01: se comprueba la configuración (CustomErrorResponses 403/404 -> /index.html 200, OAC, bucket privado); no hay CloudFront real.'
+        - 'BEM-O01: se evalúa la política de confianza del rol (infra/oidc-roles.yaml) con un evaluador local de StringEquals/StringLike, no con AssumeRoleWithWebIdentity real.'
+        - 'BEM-C22/B01: la vuelta atrás se prueba con git real (checkout del ref y el paso plan del workflow) más un /health simulado; el despliegue es un doble.'
+        - 'BEM-C25: ''CloudWatch'' se simula con el log JSON a stdout; el request id de Lambda se toma de lambdacontext.'
+        - 'BEM-M01: la denegación de qa sobre recursos de prod se evalúa sobre las sentencias IAM del manifiesto con un evaluador local; los revisores de prod se declaran en infra/github-environments.yaml (referencia versionada).'
+        - 'BEM-C26: la alarma ''llega a una persona'' se verifica como suscripción email del tema SNS (ALARM_EMAIL del CI).'
+        - 'Auth: la receta excluye autenticación; se usa un Bearer estático (AUTH_TOKEN) solo para tener rutas protegidas.'
+        - 'Rama principal del CI: main; ramas de ambiente: qa. Repositorio de ejemplo example-org/example-repo en los roles OIDC.'
+        - 'Build: scripts/build.sh requiere zip y bash (las pruebas Z01/A01 lo ejecutan de verdad).'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        ambientes: solo_prod
+        arquitectura: x86_64
+        base_datos: postgres_sesion
+        capa_cors: gateway
+        ci: azure_pipelines
+        concurrencia: "0"
+        conexiones: "1"
+        config_dinamica: si
+        cors: comodin
+        credenciales_ci: access_keys
+        empaquetado: contenedor
+        frontend: ninguno
+        gateway: rest_api
+        infraestructura: sam
+        lenguaje: node
+        max_cuerpo: "64"
+        memoria: "256"
+        presupuesto: "15"
+        red: vpc
+        region: sa-east-1
+        retencion_logs: "14"
+        rotacion_llaves: "30"
+        secretos: secrets_manager
+        timeout: "10"
+        trabajo_largo: servicio_aparte
+        vida_config: "60"
+        vida_url: "5"
+        vuelta_atras: alias
+      escenarios:
+        - BEM-C01
+        - BEM-C02
+        - BEM-C03
+        - BEM-C04
+        - BEM-C05
+        - BEM-C06
+        - BEM-C07
+        - BEM-C08
+        - BEM-C09
+        - BEM-C10
+        - BEM-C11
+        - BEM-C12
+        - BEM-C13
+        - BEM-C14
+        - BEM-C15
+        - BEM-C16
+        - BEM-C17
+        - BEM-C18
+        - BEM-C19
+        - BEM-C20
+        - BEM-C21
+        - BEM-C22
+        - BEM-C23
+        - BEM-C24
+        - BEM-C25
+        - BEM-C26
+        - BEM-C27
+        - BEM-N01
+        - BEM-N02
+        - BEM-N03
+        - BEM-R01
+        - BEM-Z02
+        - BEM-A02
+        - BEM-S03
+        - BEM-P01
+        - BEM-O02
+        - BEM-E03
+        - BEM-K03
+        - BEM-K05
+        - BEM-V01
+        - BEM-D02
+        - BEM-Q02
+        - BEM-M02
+        - BEM-B02
+        - BEM-Y01
+      lenguaje: node
+      comando: npm ci && npm test
+      resultado: pruebas ✅ · escenarios con prueba 45/45
+      supuestos:
+        - 'Paso 3 / concurrencia 0: se interpreto como sin concurrencia aprovisionada; la reservada es un parametro (10) y ReservedConcurrency x pool(1) no supera DbApiConnections.'
+        - 'Paso 3 y 5 / timeout 10 s vs presupuesto 15 s: el timeout de la funcion es 10 s; el presupuesto efectivo es min(15 s, tiempo restante del contexto - 500 ms), asi el 504 propio sale siempre antes del corte.'
+        - 'Paso 4 / CORS: una REST API con integracion proxy no agrega CORS a lo que devuelve la funcion; el preflight y los errores del gateway los pone el gateway (Cors y GatewayResponses del manifiesto) y el borde del adaptador (src/cors.js, fuera del router) estampa la misma politica comodin en las respuestas proxy. El router no escribe Access-Control-*.'
+        - 'BEM-C10: el mock de preflight de SAM responde 200 en AWS real; la prueba acepta 200 o 204 y comprueba la politica declarada en el manifiesto.'
+        - Varios ids de los pasos (E01, E02, H01, U01, S01, S02, S04, S05, V02, D01, D03, Q01, K01, K02, K04, O01, B01, M01, A01) no tienen texto de escenario; se interpretaron por su nombre y paso (la interpretacion esta en el nombre de cada prueba).
+        - 'BEM-C06, C20, C19, P01, C21: el pipeline de Azure no se ejecuta; se prueban leyendo azure-pipelines.yml. El lock exclusivo del environment es una configuracion de Azure DevOps (no cabe en YAML) y se documenta en docs/DESPLIEGUE.md; el YAML usa lockBehavior: sequential.'
+        - 'BEM-N01: el linter de promesas sueltas es propio (acorn) y equivale a no-floating-promises sin tipos.'
+        - 'BEM-N03: las fechas de retiro de runtimes nodejs de scripts/check-runtime.mjs son las conocidas al escribir la receta.'
+        - La imagen base de Lambda usa la etiqueta mayor nodejs:22; no se fija por digest porque no se puede resolver offline.
+      aprobada: true
