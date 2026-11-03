@@ -1,0 +1,61 @@
+# Manifiesto de ejemplo (infraestructura=serverless, gateway=http_api, empaquetado=zip, arquitectura=arm64,
+# ambientes=qa_y_prod). Reemplaza <servicio>, <dominio-app> y los nombres de recursos por los tuyos.
+#
+# Reglas que este archivo hace cumplir:
+# - Es la fuente única: el bloque environment REEMPLAZA todas las variables de la función en cada despliegue.
+# - Toda variable que lee el código está aquí (la prueba de referencias/go/manifiesto lo compara).
+# - Un obligatorio usa ${env:VAR} sin default vacío: si el CI no lo pasa, el despliegue falla en vez de subir ''.
+# - Cada ambiente tiene sus propios recursos (bucket, esquema, orígenes): nada se comparte entre qa y prod.
+service: <servicio>-api
+frameworkVersion: '3'   # fijado; el CI usa npx serverless@3 (o @4 con su cuenta y licencia)
+
+custom:
+  stage: ${sls:stage}
+  allowedOrigins:        # cors=lista: localhost solo fuera de producción
+    prod: https://<dominio-app>
+    qa: https://qa.<dominio-app>,http://localhost:5173
+  bucketArchivos:
+    prod: <servicio>-archivos-prod
+    qa: <servicio>-archivos-qa
+
+provider:
+  name: aws
+  runtime: provided.al2023         # Go. Node: nodejs22.x (o el LTS vigente) y handler: dist/lambda.handler
+  architecture: arm64
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'qa'}
+  memorySize: 512
+  timeout: 29                      # ≤ corte de HTTP API (30 s) menos 1 s
+  logRetentionInDays: 30
+  httpApi:
+    payload: '2.0'
+    # Sin «cors:» aquí: capa_cors=aplicacion. Si lo activas, quita el middleware CORS de la aplicación.
+  environment:
+    STAGE: ${sls:stage}
+    DATABASE_URL: ${env:DATABASE_URL}            # secreto: sin default
+    JWT_SECRET: ${env:JWT_SECRET}                # secreto: sin default
+    CORS_ALLOWED_ORIGINS: ${self:custom.allowedOrigins.${sls:stage}}
+    HANDLER_BUDGET_SECONDS: '25'
+    MAX_BODY_KB: '1024'
+    PRESIGNED_URL_MINUTES: '15'
+    FILES_BUCKET: ${self:custom.bucketArchivos.${sls:stage}}
+  iam:
+    role:
+      statements:                  # rol de ejecución mínimo: solo lo de este ambiente
+        - Effect: Allow
+          Action: [s3:GetObject, s3:PutObject]
+          Resource: arn:aws:s3:::${self:custom.bucketArchivos.${sls:stage}}/*
+
+functions:
+  api:
+    handler: bootstrap             # Go. Node: dist/lambda.handler (con NODE_OPTIONS: --enable-source-maps en environment)
+    reservedConcurrency: 50        # protege la base y a terceros; sobre el tope, 429
+    events:
+      - httpApi: '*'               # ruta $default: todo, incluida «/», va al router
+
+package:
+  individually: true
+  patterns:
+    - '!**'
+    - bootstrap                    # Go. Node: dist/lambda.mjs y dist/lambda.mjs.map (nada de node_modules)
+    # - data/catalogo.json        # solo archivos que el código lee en ejecución, uno por uno
