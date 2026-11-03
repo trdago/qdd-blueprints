@@ -1,0 +1,1226 @@
+# Blueprint QDD: WhatsApp Web como dispositivo vinculado.
+# Cómo un servicio propio se conecta a un número de WhatsApp como dispositivo vinculado (WhatsApp Web, biblioteca Go
+# whatsmeow) para leer en solo lectura los chats de una lista blanca, usar el chat propio («Mensaje a ti mismo») como
+# consola con acciones que se aprueban solo con 👍, entregar documentos por una cola de salida, enviar documentos a un
+# tercero validado y convertir los mensajes en propuestas normalizadas sin IA. Destilado de un agente en producción.
+# Paquete Go de referencia, con pruebas guardianas y ejemplos (enrolar, vigilar, responder, encolar, aprobar), en
+# referencias/go.
+#
+#   qdd blueprint add whatsapp-web
+#   qdd blueprint apply whatsapp-web
+#   qdd modules approve whatsapp-web
+id: whatsapp-web
+nombre: WhatsApp Web como dispositivo vinculado
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: Propietaria — uso interno
+descripcion: >
+  Un servicio vincula un número como dispositivo de WhatsApp Web y queda escuchando en solo lectura: solo procesa los
+  chats de una lista blanca (lo demás se descarta antes de guardarlo), descarga adjuntos con tope de tamaño y es
+  idempotente por (chat, id del mensaje). Por construcción no envía nada salvo al chat propio, donde la persona conversa
+  con el agente y aprueba con un 👍 las acciones que este propone; un «sí» escrito no ejecuta nada. Los documentos salen
+  por una cola en la base, con reintentos y orden. Opcionales: envío de documentos a un tercero validado (sin grupos,
+  desde un único caso de uso) y clasificación de los mensajes con un clasificador intercambiable, con normalización
+  determinista de RUT, montos, fechas, folio y tipo de documento en propuestas que la persona confirma.
+
+alcance:
+  incluye:
+    - "Vincular un número como dispositivo de WhatsApp Web (código de emparejamiento o QR) y mantener su sesión"
+    - "Escuchar en solo lectura los chats de una lista blanca, con el historial que entrega WhatsApp y sus adjuntos"
+    - "El chat propio como consola: responder, proponer acciones y aprobarlas con 👍, avisos de avance y de resultado"
+    - "La cola de salida que adjunta documentos en el chat propio"
+    - "El servicio de usuario que mantiene corriendo al vigía"
+  excluye:
+    - "La API oficial de WhatsApp Business y los números de empresa dedicados"
+    - "Escribir texto libre a terceros, a grupos o a listas de difusión, y los envíos programados"
+    - "Leer las respuestas de un tercero que recibió un envío, si no está en la lista blanca"
+    - "Notas de voz, su transcripción y los archivos que la persona manda a su propio chat"
+    - "Qué preguntas sabe responder el agente, sus plantillas y el formato de cada respuesta"
+    - "OCR de imágenes o escaneos"
+    - "Publicar las propuestas confirmadas en otro sistema"
+    - "El contrato de los servicios externos (el directorio de la lista blanca y el servicio de clasificación): su formato, su autenticación y su URL los fija cada proyecto detrás de su puerto"
+
+vocabulario:
+  - termino: dispositivo vinculado
+    definicion: >
+      El servicio conectado al número como una sesión de WhatsApp Web («Dispositivos vinculados» en el teléfono). El
+      teléfono sigue siendo el principal; si pasa {{inactividad_telefono}} sin conexión, el dispositivo se desvincula.
+  - termino: sesión
+    definicion: >
+      El estado criptográfico del dispositivo vinculado que guarda la biblioteca, en su propia base. Solo la abre el
+      proceso del vigía; es un secreto.
+  - termino: JID
+    definicion: >
+      La dirección de un chat en WhatsApp: usuario@servidor. Un número es <dígitos>@s.whatsapp.net, un grupo
+      <id>@g.us; también hay canales, difusiones y estados.
+  - termino: LID
+    definicion: >
+      Identificador de privacidad con que WhatsApp puede entregar un chat 1:1 en vez del número (<id>@lid). Se resuelve
+      al número con la dirección alternativa del mensaje o con el mapa de LID de la sesión.
+  - termino: E.164
+    definicion: Formato de un teléfono con «+», código de país y número, sin espacios (+56900000000).
+  - termino: lista blanca
+    definicion: >
+      Los teléfonos (y los grupos agregados a mano) cuyos chats se procesan. Cada entrada dice a qué empresa pertenece
+      y su modo: completo o solo documentos.
+  - termino: chat propio
+    definicion: El chat «Mensaje a ti mismo» del número vinculado. Es la consola del agente y el único destino sin aprobación.
+  - termino: marca del agente
+    definicion: >
+      El símbolo con que empieza todo mensaje que escribe el agente en el chat propio. Lo que empieza así nunca se vuelve
+      a procesar como pregunta.
+  - termino: propuesta de acción
+    definicion: >
+      Un mensaje propio del agente que describe una sola acción (qué, para quién, cuándo vence). Solo se ejecuta si la
+      persona reacciona 👍 a ese mensaje antes del vencimiento.
+  - termino: reclamo
+    definicion: >
+      El paso atómico en la base de una propuesta pendiente y vigente a «ejecutando». Solo una aprobación lo obtiene.
+  - termino: cola de salida
+    definicion: >
+      Los documentos por adjuntar en el chat propio (tipo, etiqueta, ruta, nombre, tipo MIME, pie, estado, intentos y
+      último error), en una tabla de la base o en memoria según dónde viva. Quien encola no envía; solo el proceso con la
+      sesión la drena.
+  - termino: destinatario validado
+    definicion: >
+      Un tercero con número E.164 comprobado en WhatsApp, cuyo JID devolvió WhatsApp y es un usuario individual (nunca
+      un grupo, un canal ni una difusión) con el mismo número.
+  - termino: trivial
+    definicion: Un mensaje sin adjunto que no aporta («ok», «gracias», solo emojis o muy corto). Se guarda marcado y no se clasifica.
+  - termino: clasificador
+    definicion: >
+      El componente intercambiable que asigna a un mensaje una categoría y una confianza. Puede ser un servicio de
+      clasificación o un LLM; solo elige entre las categorías declaradas.
+  - termino: dudoso
+    definicion: Un mensaje clasificado con confianza bajo el umbral. Queda consultable para revisión; no genera propuesta.
+  - termino: propuesta de registro
+    definicion: >
+      Lo normalizado de un mensaje (tipo de documento, RUT, folio, monto, fechas), con la cita de cada campo, en estado
+      pendiente hasta que la persona la confirma o la descarta.
+  - termino: cita
+    definicion: El fragmento exacto del texto del que salió un campo normalizado.
+  - termino: error terminal
+    definicion: >
+      Sesión revocada por WhatsApp u otra instancia que abrió la misma sesión. Reintentar no sirve: hay que volver a
+      vincular o cerrar la otra instancia.
+
+parametros:
+  - id: nombre_dispositivo
+    pregunta: ¿Con qué nombre aparece el vigía en «Dispositivos vinculados» del teléfono?
+    ayuda: La persona lo ve al revisar qué sesiones tiene abiertas; conviene que diga de quién es y para qué.
+    tipo: texto
+    por_defecto: Empresa Demo Vigía
+    ejemplos: ["Empresa Demo Vigía", "Vigía de facturas"]
+  - id: pais_telefono
+    pregunta: ¿Qué reglas de país se usan para llevar un teléfono escrito sin «+» a E.164?
+    ayuda: Un número con «+» se acepta de cualquier país (8 a 15 dígitos); sin «+», solo los formatos de este país.
+    tipo: texto
+    por_defecto: "Chile: 9 dígitos que empiezan con 9 → +56; 11 dígitos que empiezan con 569 → +"
+    ejemplos: ["Chile: 9 dígitos que empiezan con 9 → +56; 11 dígitos que empiezan con 569 → +", "Perú: 9 dígitos que empiezan con 9 → +51"]
+  - id: tope_adjunto_mb
+    pregunta: ¿Hasta cuántos MB se descarga un adjunto de un chat vigilado?
+    ayuda: Se decide con el tamaño que declara el mensaje, antes de descargar; uno mayor deja solo el mensaje guardado.
+    tipo: numero
+    por_defecto: "25"
+    ejemplos: ["16", "25"]
+  - id: recarga_lista_min
+    pregunta: ¿Cada cuántos minutos se vuelve a cargar la lista blanca desde la base?
+    ayuda: Un contacto agregado se empieza a vigilar a más tardar en ese plazo, sin reiniciar el servicio.
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["1", "5"]
+  - id: sincroniza_lista_h
+    si: {fuente_lista_blanca: [servicio_externo, ambos]}
+    pregunta: ¿Cada cuántas horas se trae la lista blanca desde el servicio externo?
+    ayuda: También se trae al arrancar. Si la sincronización falla, se sigue con la última lista válida.
+    tipo: numero
+    por_defecto: "6"
+    ejemplos: ["1", "6", "24"]
+  - id: prefijo
+    si: {activacion: [escucha_permanente, prefijo, ventana]}
+    pregunta: ¿Qué prefijo activa al agente en el chat propio?
+    ayuda: >
+      Pocas letras, sin distinguir mayúsculas, seguidas de espacio, «:» o «,» (así no se confunde con el comienzo de
+      otra palabra). Con voz, conviene sumar las variantes con que la transcripción lo escribe. Con escucha permanente
+      sirve para silenciarla («close») y para reabrirla.
+    tipo: texto
+    por_defecto: bot
+    ejemplos: ["bot", "ia"]
+  - id: ventana_escucha_h
+    si: {activacion: ventana}
+    pregunta: ¿Cuántas horas queda abierta la escucha tras un mensaje con prefijo?
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["1", "5"]
+  - id: marca_respuesta
+    pregunta: ¿Con qué símbolo empieza todo mensaje que escribe el agente en el chat propio?
+    ayuda: Distingue lo que escribe el agente de lo que escribe la persona y evita que el agente se responda a sí mismo.
+    tipo: texto
+    por_defecto: "🤖"
+    ejemplos: ["🤖", "🟢"]
+  - id: vence_propuesta_min
+    pregunta: ¿Cuántos minutos dura una propuesta de acción antes de vencer?
+    ayuda: Más corto, menos riesgo de un 👍 tardío sobre algo que ya cambió; más largo, más tiempo para verla.
+    tipo: numero
+    por_defecto: "15"
+    ejemplos: ["10", "15"]
+  - id: max_propuestas
+    pregunta: ¿Cuántas propuestas de acción, como máximo, se mandan juntas en una respuesta?
+    tipo: numero
+    por_defecto: "2"
+    ejemplos: ["1", "2"]
+  - id: aviso_avance_min
+    pregunta: ¿Cada cuántos minutos, como máximo, se avisa el avance de una tarea larga?
+    ayuda: El primer aviso sale un intervalo después de verla en curso (el lanzamiento ya respondió).
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["15", "30"]
+  - id: outbox_cada_s
+    pregunta: ¿Cada cuántos segundos se drena la cola de salida?
+    ayuda: Es la demora con que llega un adjunto pedido; el texto de la respuesta llega al instante.
+    tipo: numero
+    por_defecto: "20"
+    ejemplos: ["5", "20"]
+  - id: outbox_lote
+    pregunta: ¿Cuántas entregas se envían en cada drenaje de la cola?
+    tipo: numero
+    por_defecto: "20"
+    ejemplos: ["5", "20"]
+  - id: outbox_max_intentos
+    pregunta: ¿Cuántas veces se intenta una entrega cuyo envío falla?
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["3", "5"]
+  - id: tope_outbox_mb
+    pregunta: ¿Hasta cuántos MB puede pesar un documento que se adjunta?
+    ayuda: Un tipo de entrega puede tener su propio tope (p. ej. un informe grande); este es el general.
+    tipo: numero
+    por_defecto: "16"
+    ejemplos: ["16", "90"]
+  - id: vence_envio_min
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿Cuántos minutos dura una propuesta de envío a un tercero?
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["5", "10"]
+  - id: envio_max_archivos
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿Cuántos archivos, como máximo, lleva un envío a un tercero?
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["5", "10"]
+  - id: envio_max_por_hora
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿Cuántos envíos aprobados a terceros se permiten por hora?
+    ayuda: Los topes bajan el riesgo de que WhatsApp restrinja la cuenta por parecer automatizada.
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["5", "10"]
+  - id: envio_max_personas_dia
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿A cuántas personas distintas se puede enviar por día?
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["3", "5"]
+  - id: envio_mismo_contenido_min
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿Cuántos minutos deben pasar para reenviar exactamente lo mismo a la misma persona?
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["10", "60"]
+  - id: pausa_archivos_s
+    si: {envio_terceros: documentos_con_like}
+    pregunta: ¿Cuántos segundos se espera entre un archivo y el siguiente de un mismo envío?
+    ayuda: Que no salgan en ráfaga.
+    tipo: numero
+    por_defecto: "1.5"
+    ejemplos: ["1.5", "3"]
+  - id: max_mensajes_historial
+    si: {recuperar_adjuntos: pedir_al_telefono}
+    pregunta: ¿Cuántos mensajes anteriores al ancla se piden al teléfono en cada petición de historial?
+    ayuda: El ancla es el mensaje siguiente al del adjunto faltante en su chat, así que el tramo pedido lo incluye.
+    tipo: numero
+    por_defecto: "3"
+    ejemplos: ["3"]
+  - id: intentos_recuperacion
+    si: {recuperar_adjuntos: pedir_al_telefono}
+    pregunta: ¿Cuántas veces, como máximo, se pide al teléfono el tramo de historial de un mismo adjunto faltante?
+    tipo: numero
+    por_defecto: "3"
+    ejemplos: ["1", "3"]
+  - id: recuperar_cada_min
+    si: {recuperar_adjuntos: pedir_al_telefono}
+    pregunta: ¿Cada cuántos minutos se revisan los adjuntos faltantes para pedirlos al teléfono?
+    ayuda: La primera revisión es a los {{primera_recuperacion}}, cuando la sesión ya conectó.
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["30", "60"]
+  - id: recuperar_lote
+    si: {recuperar_adjuntos: pedir_al_telefono}
+    pregunta: ¿Cuántos adjuntos faltantes, como máximo, se piden al teléfono en cada revisión?
+    ayuda: Se toman los más recientes primero.
+    tipo: numero
+    por_defecto: "20"
+    ejemplos: ["10", "20"]
+  - id: categorias
+    si: {clasificacion: propuestas}
+    pregunta: ¿Entre qué categorías elige el clasificador?
+    ayuda: Cada una con una frase que la describe; el clasificador recibe la lista y elige una.
+    tipo: texto
+    por_defecto: "factura_o_pago, documento_legal, coordinacion_comercial, otro_empresa, personal"
+    ejemplos: ["factura_o_pago, documento_legal, coordinacion_comercial, otro_empresa, personal"]
+  - id: categorias_con_propuesta
+    si: {clasificacion: propuestas}
+    pregunta: ¿Qué categorías se convierten en una propuesta de registro?
+    ayuda: Las demás quedan como mensajes relevantes consultables, sin propuesta.
+    tipo: texto
+    por_defecto: "factura_o_pago, documento_legal"
+    ejemplos: ["factura_o_pago, documento_legal"]
+  - id: min_confianza
+    si: {clasificacion: propuestas}
+    pregunta: ¿Desde qué confianza del clasificador se propone (bajo ella el mensaje queda dudoso)?
+    tipo: numero
+    por_defecto: "0.70"
+    ejemplos: ["0.60", "0.70", "0.80"]
+  - id: tope_diario_clasificador
+    si: {clasificacion: propuestas}
+    pregunta: ¿Cuántas llamadas al clasificador se permiten por día?
+    ayuda: >
+      Controla el costo. El cupo se reserva antes de llamar, así que una llamada que falla también lo gasta; sin cupo, el
+      mensaje queda pendiente y se reintenta después.
+    tipo: numero
+    por_defecto: "300"
+    ejemplos: ["100", "300"]
+  - id: max_caracteres_clasificar
+    si: {clasificacion: propuestas}
+    pregunta: ¿Cuántos caracteres, como máximo, se mandan al clasificador por mensaje?
+    ayuda: Texto del mensaje, nombre del adjunto y un extracto de su contenido.
+    tipo: numero
+    por_defecto: "4000"
+    ejemplos: ["2000", "4000"]
+  - id: reclasificar_min
+    si: {clasificacion: propuestas}
+    pregunta: ¿Cada cuántos minutos se reintenta clasificar los mensajes pendientes?
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["10", "30"]
+  - id: largo_no_trivial
+    si: {clasificacion: propuestas}
+    pregunta: ¿Bajo cuántos caracteres un mensaje sin adjunto es trivial?
+    tipo: numero
+    por_defecto: "12"
+    ejemplos: ["8", "12"]
+  - id: palabras_triviales
+    si: {clasificacion: propuestas}
+    pregunta: ¿Qué respuestas cortas se tratan como triviales?
+    tipo: texto
+    por_defecto: "ok, oka, okey, okay, dale, listo, gracias, muchas gracias, si, sí, no, perfecto, genial, buenas, hola, buenos días, buenas tardes, buenas noches, vale, de acuerdo, 👍"
+    ejemplos: ["ok, gracias, listo, dale, 👍"]
+
+constantes:
+  - id: inactividad_telefono
+    valor: unos 14 días
+    por_que: lo fija WhatsApp, no el proyecto; pasado ese tiempo sin que el teléfono principal se conecte, el dispositivo vinculado se desvincula y hay que volver a vincular
+  - id: nombre_emparejamiento
+    valor: «Chrome (Linux)», con el cliente Chrome
+    por_que: la vinculación por código exige un nombre de cliente con forma «Navegador (SO)»; el nombre del dispositivo que ve la persona va aparte
+  - id: permisos
+    valor: archivos 600, carpetas 700 y máscara 077 en el proceso
+    por_que: la sesión permite leer y escribir como la persona; con la máscara también quedan privados los archivos auxiliares de la base (-wal, -shm)
+  - id: base_sesion_sqlite
+    valor: claves foráneas activas, journal WAL y espera de 5 s ante bloqueos
+    por_que: la biblioteca recomienda con fuerza las claves foráneas en SQLite; WAL y la espera evitan errores cuando otro proceso lee la libreta de contactos
+  - id: apis_escritura
+    valor: >-
+      SendMessage, SendPeerMessage, MarkRead, MarkNotDirty, SendPresence, SendChatPresence, SubscribePresence,
+      RevokeMessage, BuildRevoke, BuildEdit, BuildReaction, SendMediaRetryReceipt, SetStatusMessage, SetGroup*,
+      JoinGroup*, LeaveGroup, UpdateGroupParticipants, SendAppState, SetDisappearingTimer, SetPrivacySetting, Logout,
+      UpdateBlocklist, SendFBMessage, Upload
+    por_que: son las llamadas de la biblioteca que cambian algo visible en WhatsApp; la prueba guardiana las busca en todo el código
+  - id: codigo_vinculacion
+    valor: 8 caracteres, válido unos 2 min
+    por_que: lo fija WhatsApp; se pide una sola vez, con el primer evento del canal de vinculación
+  - id: renovacion_qr
+    valor: unos 20 s
+    por_que: WhatsApp renueva el QR solo; cada código nuevo se muestra apenas llega
+  - id: captura_historial
+    valor: 2 min
+    por_que: es cuando WhatsApp entrega los avisos de historial; tras el éxito de la vinculación el proceso sigue conectado ese tiempo, sin procesar nada, y recién entonces cierra; cerrar antes los pierde
+  - id: chats_soportados
+    valor: 1:1 por número, 1:1 por LID y, si se vigilan, grupos
+    por_que: estados, difusiones y canales no son conversaciones con una persona o empresa
+  - id: cola_ingesta
+    valor: 1.024 mensajes en memoria; 32 para el chat propio
+    por_que: el handler de la biblioteca no debe bloquearse si la base está ocupada; el chat propio va aparte para que una respuesta lenta no frene la ingesta; si una cola se llena, quien encola espera a que haya lugar (o a que el proceso termine) y no descarta nada
+  - id: reintentos_ingesta
+    valor: 8 intentos, espera de 1 s que se duplica hasta 1 min
+    por_que: cubre una base tomada un momento por otro proceso sin perder el mensaje, que además sigue en el historial de WhatsApp
+  - id: salida_terminal
+    valor: código de salida 3
+    por_que: el servicio no reinicia con ese código; reiniciar en bucle contra WhatsApp con una sesión revocada no sirve y arriesga la cuenta
+  - id: reinicio_servicio
+    valor: 30 s
+    por_que: da tiempo a que vuelva la red o se libere la base sin golpear a WhatsApp
+  - id: espera_re_subida
+    valor: 90 s
+    por_que: el teléfono debe estar encendido y con conexión para volver a subir el archivo; más espera no cambia el resultado
+  - id: primera_recuperacion
+    valor: 2 min tras arrancar
+    por_que: deja conectar la sesión y procesar el historial guardado antes de pedirle más al teléfono
+  - id: primer_envio
+    valor: 45 s tras arrancar
+    por_que: deja conectar la sesión antes de drenar la cola de salida
+  - id: emoji_aprobar
+    valor: 👍, con o sin tono de piel
+    por_que: un gesto explícito sobre un mensaje concreto no se confunde con una frase y no lo puede producir el modelo
+  - id: radio_cita
+    valor: 30 caracteres a cada lado
+    por_que: basta para reconocer de dónde salió el dato sin copiar el documento entero
+  - id: contexto_vencimiento
+    valor: 25 caracteres antes de la fecha
+    por_que: alcanza para leer «venc…» (vence, vencimiento, vencerá), «plazo», «pagar antes» o «hasta el» y no tomar una fecha lejana como vencimiento
+  - id: anio_minimo
+    valor: "2000"
+    por_que: descarta números que parecen fechas y no lo son
+
+preguntas:
+  - id: vinculacion
+    pregunta: ¿Cómo se vincula el número?
+    ayuda: El código sirve cuando no hay cámara a mano o el servicio corre en otro equipo; el QR, cuando la persona está frente a la pantalla.
+    por_defecto: ambos
+    opciones:
+      - valor: codigo
+        descripcion: Código de emparejamiento de {{codigo_vinculacion}} que la persona ingresa en «Vincular con número de teléfono».
+        invariantes:
+          - "El número se normaliza a E.164 antes de abrir la conexión; uno inválido se rechaza sin conectar"
+          - "El código se pide una sola vez, con el primer evento del canal de vinculación"
+        conformidad:
+          - id: WAW-V01
+            titulo: No se vuelve a vincular una sesión vinculada
+            dado: una sesión que ya tiene dispositivo vinculado
+            cuando: se pide vincular
+            entonces: responde que ya está vinculada sin abrir la conexión; para volver a vincular hay que borrar la sesión
+          - id: WAW-V02
+            titulo: Teléfono inválido
+            cuando: se pide vincular con un número que no se puede llevar a E.164
+            entonces: se rechaza con un mensaje que muestra el formato esperado, sin conectar
+          - id: WAW-V03
+            titulo: Fin claro de la vinculación
+            cuando: el canal de vinculación termina por éxito, tiempo agotado, rechazo o un estado inesperado
+            entonces: cada caso devuelve un resultado distinto y entendible; el tiempo agotado dice cuánto había
+      - valor: qr
+        descripcion: QR en la terminal (o en una página local) que se escanea en «Vincular un dispositivo».
+        invariantes:
+          - "Cada QR nuevo se muestra apenas llega (se renueva cada {{renovacion_qr}}); al terminar se borra la imagen"
+        conformidad:
+          - id: WAW-V01
+            titulo: No se vuelve a vincular una sesión vinculada
+            dado: una sesión que ya tiene dispositivo vinculado
+            cuando: se pide vincular
+            entonces: responde que ya está vinculada sin abrir la conexión; para volver a vincular hay que borrar la sesión
+          - id: WAW-V03
+            titulo: Fin claro de la vinculación
+            cuando: el canal de vinculación termina por éxito, tiempo agotado, rechazo o un estado inesperado
+            entonces: cada caso devuelve un resultado distinto y entendible; el tiempo agotado dice cuánto había
+          - id: WAW-V04
+            titulo: Cada QR se muestra
+            cuando: el canal entrega dos códigos y luego el éxito
+            entonces: se muestran los dos y la vinculación termina sin error
+      - valor: ambos
+        descripcion: Código si se indica el número; QR si no.
+        invariantes:
+          - "El número se normaliza a E.164 antes de abrir la conexión; uno inválido se rechaza sin conectar"
+          - "El código se pide una sola vez, con el primer evento del canal de vinculación"
+          - "Cada QR nuevo se muestra apenas llega (se renueva cada {{renovacion_qr}}); al terminar se borra la imagen"
+        conformidad:
+          - id: WAW-V01
+            titulo: No se vuelve a vincular una sesión vinculada
+            dado: una sesión que ya tiene dispositivo vinculado
+            cuando: se pide vincular, con código o con QR
+            entonces: responde que ya está vinculada sin abrir la conexión; para volver a vincular hay que borrar la sesión
+          - id: WAW-V02
+            titulo: Teléfono inválido
+            cuando: se pide vincular con un número que no se puede llevar a E.164
+            entonces: se rechaza con un mensaje que muestra el formato esperado, sin conectar
+          - id: WAW-V03
+            titulo: Fin claro de la vinculación
+            cuando: el canal de vinculación termina por éxito, tiempo agotado, rechazo o un estado inesperado
+            entonces: cada caso devuelve un resultado distinto y entendible; el tiempo agotado dice cuánto había
+          - id: WAW-V04
+            titulo: Cada QR se muestra
+            cuando: el canal entrega dos códigos y luego el éxito
+            entonces: se muestran los dos y la vinculación termina sin error
+
+  - id: base_sesion
+    pregunta: ¿Dónde guarda la biblioteca la sesión?
+    ayuda: La biblioteca solo admite SQLite o Postgres para su estado. Los datos propios del proyecto van en su base, aparte.
+    por_defecto: sqlite
+    opciones:
+      - valor: sqlite
+        descripcion: Un archivo SQLite local, solo para la sesión.
+        decisiones:
+          - "SQLite con {{base_sesion_sqlite}}"
+        invariantes:
+          - "El archivo de la sesión queda con {{permisos}}; solo lo abre el proceso del vigía"
+          - "Otros procesos (p. ej. buscar un contacto por nombre) lo abren en solo lectura"
+        conformidad:
+          - id: WAW-C10
+            titulo: Sesión privada
+            cuando: se abre la sesión por primera vez en una carpeta nueva
+            entonces: el archivo queda con permisos 600, la carpeta con 700, y la sesión arranca sin vincular
+      - valor: postgres
+        descripcion: Un esquema de Postgres solo para la sesión.
+        depende_de:
+          - "Una base Postgres accesible desde el equipo del vigía, con credenciales que llegan por el entorno"
+        invariantes:
+          - "Las credenciales de la base de la sesión llegan por el entorno; nunca en la configuración versionada ni en los logs"
+          - "Solo el vigía escribe en la sesión; otro proceso solo la lee (p. ej. para buscar un contacto en la libreta)"
+        conformidad:
+          - id: WAW-C12
+            titulo: Credenciales de la sesión por el entorno
+            cuando: el vigía arranca con la conexión a Postgres solo en el entorno
+            entonces: la sesión abre, y ni la configuración versionada ni los logs contienen la credencial
+          - id: WAW-C13
+            titulo: Otro proceso solo lee la sesión
+            dado: la sesión en Postgres abierta por el vigía
+            cuando: otro proceso busca un contacto por nombre en la libreta
+            entonces: lo encuentra con una conexión de solo lectura y cualquier escritura suya falla
+
+  - id: fuente_lista_blanca
+    pregunta: ¿De dónde sale la lista blanca?
+    por_defecto: ambos
+    opciones:
+      - valor: servicio_externo
+        descripcion: Un directorio de clientes que entrega otro sistema (p. ej. por una herramienta de solo lectura), copiado a la base.
+        depende_de:
+          - "Una fuente de solo lectura que entrega teléfonos E.164 por empresa activa; el vigía nunca tiene credenciales de su base"
+          - "Un puerto que trae el directorio (teléfono, empresa y modo); su formato, autenticación y URL los fija cada proyecto"
+        invariantes:
+          - "Se trae al arrancar y cada {{sincroniza_lista_h}} h; cada sincronización reemplaza la copia en una transacción"
+          - "Si la sincronización falla, se mantiene la última lista válida"
+          - "Se descartan los contactos sin teléfono llevable a E.164 o sin empresa; una respuesta sin ningún contacto válido cuenta como falla y no reemplaza la copia"
+        conformidad:
+          - id: WAW-L01
+            titulo: Una sincronización fallida no vacía la lista
+            dado: una lista blanca cargada
+            cuando: la fuente externa no responde o responde con error
+            entonces: el vigía sigue filtrando con la lista anterior y lo registra
+          - id: WAW-L03
+            titulo: Un directorio vacío no reemplaza la lista
+            dado: una lista blanca cargada
+            cuando: la fuente externa responde sin contactos, o solo con teléfonos inválidos o sin empresa
+            entonces: cuenta como falla, la copia no se reemplaza y el vigía sigue filtrando con la lista anterior
+      - valor: manual
+        descripcion: La persona agrega contactos de su libreta de WhatsApp por nombre, con modo completo o solo documentos.
+        invariantes:
+          - "Un contacto se busca por nombre exacto en la libreta de la sesión (solo nombres y números); si hay varios o ninguno, no se adivina"
+          - "Nombre exacto: igual, sin distinguir mayúsculas ni espacios en los extremos, al nombre completo, al nombre que el contacto se puso o al primer nombre; nada de coincidencias parciales ni de quitar tildes"
+        conformidad:
+          - id: WAW-L02
+            titulo: Nombre ambiguo
+            cuando: se pide vigilar un nombre que calza con dos contactos de la libreta, o con ninguno
+            entonces: no se agrega nada y se pide el nombre exacto
+      - valor: ambos
+        descripcion: El directorio externo más los contactos agregados a mano.
+        depende_de:
+          - "Un puerto que trae el directorio (teléfono, empresa y modo); su formato, autenticación y URL los fija cada proyecto"
+        invariantes:
+          - "Se trae al arrancar y cada {{sincroniza_lista_h}} h; cada sincronización reemplaza la copia en una transacción"
+          - "Si la sincronización falla, se mantiene la última lista válida"
+          - "Se descartan los contactos sin teléfono llevable a E.164 o sin empresa; una respuesta sin ningún contacto válido cuenta como falla y no reemplaza la copia"
+          - "Un contacto se busca por nombre exacto en la libreta de la sesión (solo nombres y números); si hay varios o ninguno, no se adivina"
+          - "Nombre exacto: igual, sin distinguir mayúsculas ni espacios en los extremos, al nombre completo, al nombre que el contacto se puso o al primer nombre; nada de coincidencias parciales ni de quitar tildes"
+        conformidad:
+          - id: WAW-L01
+            titulo: Una sincronización fallida no vacía la lista
+            dado: una lista blanca cargada
+            cuando: la fuente externa no responde o responde con error
+            entonces: el vigía sigue filtrando con la lista anterior y lo registra
+          - id: WAW-L02
+            titulo: Nombre ambiguo
+            cuando: se pide vigilar un nombre que calza con dos contactos de la libreta, o con ninguno
+            entonces: no se agrega nada y se pide el nombre exacto
+          - id: WAW-L03
+            titulo: Un directorio vacío no reemplaza la lista
+            dado: una lista blanca cargada
+            cuando: la fuente externa responde sin contactos, o solo con teléfonos inválidos o sin empresa
+            entonces: cuenta como falla, la copia no se reemplaza y el vigía sigue filtrando con la lista anterior
+
+  - id: grupos
+    pregunta: ¿Se vigilan grupos?
+    por_defecto: a_mano
+    opciones:
+      - valor: a_mano
+        descripcion: Solo los grupos que la persona agrega, eligiendo entre los nombres de sus grupos (solo metadatos).
+        invariantes:
+          - "Un grupo se procesa solo si la persona lo agregó; de los demás solo se guarda el nombre para poder elegir"
+        conformidad:
+          - id: WAW-G01
+            titulo: Grupo no agregado
+            cuando: llega un mensaje de un grupo que la persona no agregó
+            entonces: se descarta como cualquier chat fuera de la lista blanca
+      - valor: "no"
+        descripcion: Solo chats 1:1.
+        alcance: {excluye: ["Vigilar grupos"]}
+        invariantes:
+          - "Ningún mensaje de grupo se procesa"
+        conformidad:
+          - id: WAW-G02
+            titulo: Grupos fuera
+            cuando: llega un mensaje de un grupo
+            entonces: se descarta sin guardar ni clasificar, igual que un chat fuera de la lista blanca
+
+  - id: activacion
+    pregunta: ¿Qué mensajes del chat propio atiende el agente?
+    ayuda: Con escucha permanente el chat propio deja de servir de cuaderno de notas mientras no se silencie.
+    por_defecto: escucha_permanente
+    opciones:
+      - valor: escucha_permanente
+        descripcion: Todo texto del chat propio, sin prefijo; «{{prefijo}} close» (o «cierra», «cerrar») lo silencia hasta el próximo mensaje con prefijo que no sea otro cierre.
+        invariantes:
+          - "Un mensaje con prefijo que no es un cierre reabre la escucha (avisa solo si estaba silenciada) y se atiende sin el prefijo"
+          - "Un cierre con la escucha ya silenciada no la reabre: responde que no había escucha activa"
+          - "El silencio vive en la memoria del proceso: tras un reinicio la escucha vuelve a estar abierta"
+        conformidad:
+          - id: WAW-P05
+            titulo: Escucha permanente silenciable
+            dado: la escucha permanente activa
+            cuando: la persona escribe un texto sin prefijo, luego «{{prefijo}} close» y luego otro texto sin prefijo
+            entonces: el primero se atiende, el cierre avisa una sola vez y el último no se atiende
+          - id: WAW-P08
+            titulo: Segundo cierre y reinicio
+            dado: "la escucha permanente silenciada con «{{prefijo}} close»"
+            cuando: llega otro «{{prefijo}} close», luego el servicio se reinicia y llega un texto sin prefijo
+            entonces: el segundo cierre no reabre la escucha y responde que no había escucha activa; tras el reinicio la escucha está abierta y el texto se atiende
+      - valor: prefijo
+        descripcion: Solo «{{prefijo}} <pregunta>».
+        conformidad:
+          - id: WAW-P06
+            titulo: Solo con prefijo
+            cuando: "llegan «{{prefijo}}: ¿cómo va?», un texto sin prefijo y una palabra que empieza con las mismas letras"
+            entonces: solo el primero se atiende, con la pregunta sin el prefijo
+      - valor: ventana
+        descripcion: Un mensaje con «{{prefijo}}» abre la escucha por {{ventana_escucha_h}} h; mientras dure, sin prefijo también.
+        conformidad:
+          - id: WAW-P07
+            titulo: Ventana de escucha
+            dado: un mensaje con prefijo
+            cuando: llega un texto sin prefijo dentro de la ventana y otro después de que venció
+            entonces: el primero se atiende y el segundo no; el agente avisa solo cuando la escucha se abre o se cierra
+
+  - id: persistencia_outbox
+    pregunta: ¿Dónde vive la cola de salida?
+    ayuda: >
+      La biblioteca admite una sola sesión por proceso: si quien pide un documento es otro proceso (una herramienta del
+      agente), solo puede encolar en una base compartida.
+    por_defecto: base
+    opciones:
+      - valor: base
+        descripcion: Una tabla en la base del proyecto; cualquier proceso encola y solo el del vigía drena.
+        invariantes:
+          - "Una entrega pendiente sobrevive a un reinicio y se envía en el siguiente drenaje"
+        conformidad:
+          - id: WAW-O05
+            titulo: La cola sobrevive al reinicio
+            dado: una entrega encolada por otro proceso
+            cuando: el vigía se reinicia antes de drenarla
+            entonces: la entrega sale en el primer drenaje tras arrancar, una sola vez
+      - valor: memoria
+        descripcion: Una cola en memoria del mismo proceso (pruebas, demos o un solo proceso que pide y envía).
+        alcance: {excluye: ["Encolar desde otro proceso y conservar la cola tras un reinicio"]}
+        invariantes:
+          - "Lo pendiente se pierde al reiniciar; quien encola es el mismo proceso que tiene la sesión"
+        conformidad:
+          - id: WAW-O06
+            titulo: Cola en memoria
+            dado: una entrega encolada en memoria
+            cuando: el proceso se reinicia antes de drenarla
+            entonces: la cola arranca vacía y la entrega no sale; solo el proceso que tiene la sesión puede encolar
+
+  - id: recuperar_adjuntos
+    pregunta: ¿Se recuperan los adjuntos que el servidor de WhatsApp ya no tiene?
+    ayuda: Un adjunto antiguo deja de estar en el servidor, pero puede seguir en el teléfono propio.
+    por_defecto: pedir_al_telefono
+    opciones:
+      - valor: pedir_al_telefono
+        descripcion: Se pide al teléfono propio volver a subir el adjunto o reenviar un tramo de historial del chat ya vigilado.
+        depende_de:
+          - "El teléfono encendido y con conexión durante la petición"
+        invariantes:
+          - "Las únicas peticiones al teléfono propio son volver a subir un adjunto expirado y reenviar hasta {{max_mensajes_historial}} mensajes anteriores de un chat vigilado; viven en un solo archivo con su prueba guardiana"
+          - "Ese archivo es un emisor permitido de {{apis_escritura}} con exactamente dos llamadas: SendMediaRetryReceipt (re-subida) y SendPeerMessage sobre BuildHistorySyncRequest (historial); su prueba falla si aparece otra"
+          - "La re-subida la pide la propia descarga cuando el error es de archivo expirado: espera la respuesta del teléfono hasta {{espera_re_subida}}, la descifra y descarga desde la ruta nueva"
+          - "El historial lo pide una tarea del vigía a los {{primera_recuperacion}} y luego cada {{recuperar_cada_min}} min; nadie más lo pide"
+          - "Cada revisión toma hasta {{recuperar_lote}} mensajes con adjunto declarado y sin archivo guardado (los más recientes primero) que tengan un mensaje posterior en su chat y menos de {{intentos_recuperacion}} intentos"
+          - "Por cada uno pide {{max_mensajes_historial}} mensajes anteriores a ese mensaje posterior (el ancla) y le suma un intento"
+          - "Si lo reenviado trae el adjunto, completa el mensaje ya guardado (misma clave) y lo deja otra vez pendiente de clasificar"
+          - "Ningún tercero recibe nada por estas peticiones; lo que el teléfono reenvía pasa por la lista blanca como cualquier mensaje"
+          - "Si el teléfono no responde en {{espera_re_subida}}, el adjunto queda como faltante"
+        conformidad:
+          - id: WAW-R01
+            titulo: Peticiones solo al teléfono propio
+            cuando: se revisa el código que hace peticiones al teléfono
+            entonces: hay exactamente una llamada a SendMediaRetryReceipt y una a SendPeerMessage, que envuelve BuildHistorySyncRequest, y ninguna otra de {{apis_escritura}}
+          - id: WAW-R02
+            titulo: Adjunto expirado
+            cuando: la descarga falla porque el servidor ya no tiene el archivo (403, 404, 410, sin URL o huella distinta)
+            entonces: se pide la re-subida al teléfono; ante otros errores (p. ej. sin red) no se pide nada
+          - id: WAW-R03
+            titulo: Lo reenviado pasa por la lista blanca
+            dado: un tramo de historial reenviado por el teléfono
+            cuando: trae mensajes de un chat no vigilado
+            entonces: se descartan como cualquier mensaje fuera de la lista blanca
+          - id: WAW-R05
+            titulo: Pedido de historial acotado
+            dado: un mensaje guardado con adjunto faltante y otro posterior en su chat
+            cuando: la revisión de faltantes corre una vez más que {{intentos_recuperacion}} sin que llegue el adjunto
+            entonces: en cada una de las primeras {{intentos_recuperacion}} se piden {{max_mensajes_historial}} mensajes anteriores al posterior y se suma un intento; en la última no se pide nada
+      - valor: "no"
+        descripcion: Un adjunto expirado queda como faltante.
+        alcance: {excluye: ["Recuperar adjuntos expirados desde el teléfono"]}
+        invariantes:
+          - "El vigía no hace ninguna petición al teléfono propio"
+        conformidad:
+          - id: WAW-R04
+            titulo: Sin peticiones al teléfono
+            cuando: la descarga de un adjunto falla porque expiró
+            entonces: el adjunto queda como faltante y no hay ninguna petición al teléfono propio; la prueba guardiana falla si el código hace una
+
+  - id: envio_terceros
+    pregunta: ¿El agente puede enviar documentos a otra persona?
+    ayuda: >
+      Un error llega a un tercero y no se puede deshacer, y escribir a terceros desde un número personal con un
+      cliente no oficial arriesga la cuenta.
+    por_defecto: documentos_con_like
+    opciones:
+      - valor: documentos_con_like
+        alcance: {incluye: ["El envío de documentos a un tercero validado, aprobado con 👍"]}
+        descripcion: Solo documentos, a un destinatario validado, cuando la persona reacciona 👍 a la propuesta.
+        decisiones:
+          - "Un puerto propio para el envío a terceros, con un único adaptador, separado del emisor al chat propio"
+          - "La propuesta de envío usa el mismo motor de aprobación con 👍 que las demás acciones"
+        invariantes:
+          - "El destinatario se normaliza a E.164 y se comprueba en WhatsApp antes de proponer; el JID lo da WhatsApp, nunca la persona ni el modelo"
+          - "El adaptador revalida que el JID sea un usuario individual con el mismo número; rechaza grupos, canales y difusiones"
+          - "Un único caso de uso llama al envío a terceros, y solo como ejecutor de una propuesta aprobada con {{emoji_aprobar}}"
+          - "Solo documentos con su pie: sin texto libre ni mensajes redactados por el modelo"
+          - "El pie de cada documento lo arma el sistema con los datos del documento (p. ej. tipo y número, receptor, fecha y montos), sin IA ni texto de la persona; queda guardado en la propuesta y sale ese mismo"
+          - "La propuesta muestra el nombre y el número COMPLETO, cada archivo y la hora de vencimiento, y avisa si el número es nuevo"
+          - "Un nombre ambiguo o desconocido no se adivina: se pide elegir o escribir el número"
+          - "Topes: {{envio_max_archivos}} archivos por envío, {{envio_max_por_hora}} envíos por hora, {{envio_max_personas_dia}} personas por día, y lo mismo a la misma persona no antes de {{envio_mismo_contenido_min}} min"
+          - "La propuesta de envío vence en {{vence_envio_min}} min; los archivos salen con {{pausa_archivos_s}} s entre uno y otro"
+          - "Tras un envío se avisa en el chat propio para quién, cuántos archivos salieron, la hora y el estado; sin reintentos en silencio"
+          - "Cada propuesta, aprobación, envío y falla queda en la bitácora con el número enmascarado"
+        conformidad:
+          - id: WAW-T01
+            titulo: Sin grupos ni otro número
+            cuando: el destino es un grupo, un canal, una difusión, un JID inválido, un JID de otro número o falta el teléfono
+            entonces: el adaptador lo rechaza sin enviar nada
+          - id: WAW-T02
+            titulo: Un solo envío, al JID validado
+            cuando: se revisa el código del adaptador de envío a terceros
+            entonces: tiene exactamente un envío y su destino es el JID que devolvió la validación
+          - id: WAW-T03
+            titulo: Nadie más llama al envío
+            cuando: se recorre todo el código de producción
+            entonces: solo el caso de uso de envío confirmado llama al emisor a terceros; el adaptador lo implementa y el puerto lo declara, pero ninguno de los dos lo llama
+          - id: WAW-T04
+            titulo: Sin 👍 no sale nada
+            dado: una propuesta de envío vigente
+            cuando: la persona escribe «sí, mándalo» y después reacciona 👍 dos veces
+            entonces: el texto no envía nada; el primer 👍 envía los archivos una sola vez al JID comprobado
+          - id: WAW-T05
+            titulo: Número inexistente
+            cuando: se pide enviar a un número inválido o que no está en WhatsApp
+            entonces: no hay propuesta y el agente explica por qué y qué hacer
+          - id: WAW-T06
+            titulo: Tope de archivos
+            cuando: se pide enviar más de {{envio_max_archivos}} archivos, o ninguno
+            entonces: no hay propuesta y el agente sugiere pedir por partes
+          - id: WAW-T07
+            titulo: Propuesta verificable
+            cuando: se propone un envío a un número nuevo
+            entonces: el mensaje trae el número completo, cada archivo, la hora de vencimiento y el aviso de número nuevo
+          - id: WAW-T08
+            titulo: Topes por hora, por día y repetidos
+            cuando: se pide un envío que supera los envíos por hora, las personas por día o repite el mismo contenido a la misma persona dentro del plazo
+            entonces: no hay propuesta y la negativa dice qué tope se alcanzó y cuándo volver a intentar
+      - valor: "no"
+        descripcion: El vigía solo escribe en el chat propio.
+        alcance: {excluye: ["Enviar documentos a terceros"]}
+        invariantes:
+          - "El único emisor del código es el del chat propio, sin parámetro de destinatario"
+        conformidad:
+          - id: WAW-T09
+            titulo: Solo el chat propio
+            cuando: se revisa el código que envía mensajes
+            entonces: el único emisor es el del chat propio, sin parámetro de destinatario, y la prueba guardiana falla si aparece otro
+
+  - id: clasificacion
+    pregunta: ¿Se clasifican los mensajes vigilados y se proponen registros?
+    por_defecto: propuestas
+    opciones:
+      - valor: propuestas
+        alcance: {incluye: ["La clasificación de los mensajes y su normalización sin IA en propuestas que la persona confirma"]}
+        descripcion: Descartar triviales, clasificar, normalizar sin IA y proponer lo que la persona confirma.
+        invariantes:
+          - "Un mensaje sin adjunto es trivial si es una de {{palabras_triviales}}, si no tiene letras ni dígitos o si tiene menos de {{largo_no_trivial}} caracteres; se guarda marcado y no se clasifica"
+          - "La trivialidad se decide solo con el texto del mensaje, en minúsculas y sin espacios ni «! . ¡» en los extremos, contando caracteres (no bytes); con adjunto nunca es trivial"
+          - "La normalización lee el texto completo del mensaje más el texto extraído del adjunto; un mensaje trivial (p. ej. «vence el 30» solo, sin adjunto) no llega a normalizarse"
+          - "Al clasificador va el texto, el nombre del adjunto y un extracto de su contenido, hasta {{max_caracteres_clasificar}} caracteres; elige entre {{categorias}}"
+          - "Cada llamada al clasificador consume un cupo de {{tope_diario_clasificador}} por día; sin cupo o con el clasificador caído el mensaje queda pendiente y se reintenta cada {{reclasificar_min}} min"
+          - "El cupo se reserva en la base (por día UTC, en una transacción) antes de llamar: una llamada que falla también lo gasta; los tokens se suman solo de las respuestas. El reintento solo clasifica si el chat sigue en la lista blanca"
+          - "Se propone solo para {{categorias_con_propuesta}} con confianza ≥ {{min_confianza}}; bajo el umbral el mensaje queda dudoso, consultable y sin propuesta"
+          - "La normalización es determinista, sin IA: RUT, montos, fechas, folio y tipo de documento, cada campo con su cita de {{radio_cita}}"
+          - "RUT con guion obligatorio y dígito verificador módulo 11; los inválidos se descartan; se formatea 12.345.678-5 y no se repite"
+          - "Montos en centésimas, sin punto flotante: en CLP el punto separa miles; en UF la coma es decimal; en USD la coma separa miles; un TOTAL rotulado gana sobre los demás"
+          - "TOTAL rotulado es «total» o «total a pagar» como palabra (no «subtotal»), con «:» opcional y seguido de «$». Sin él gana el primer monto según el orden UF, USD (USD o US$), «$» y «CLP»/«pesos», y dentro de cada uno el primero del texto"
+          - "«US$» es USD, nunca CLP. En CLP no hay decimales: lo que sigue a la coma no se lee. En USD el punto es decimal (hasta 2 cifras); en UF, hasta 4 cifras redondeadas a centésimas. Un monto 0 se descarta"
+          - "Fechas dd-mm-aaaa, dd/mm/aaaa, dd.mm.aaaa y «30 de octubre de 2026»; una fecha precedida en {{contexto_vencimiento}} por vencimiento o plazo es de vencimiento; «vence el 30» toma el mes de la fecha del mensaje o el siguiente si ya pasó; años desde {{anio_minimo}}"
+          - "Vencimiento: en los {{contexto_vencimiento}} anteriores a la fecha aparece, sin distinguir mayúsculas, la raíz «venc» (vence, vencimiento, vencerá), «plazo», «pagar antes» o «hasta el»"
+          - "La emisión es la primera fecha que no es de vencimiento (las numéricas antes que las escritas); una fecha imposible se descarta"
+          - "Una fecha escrita sin año («30 de octubre») toma el año del mensaje, aunque ya haya pasado; «vence el N» o «vencerá el N» sin mes es la única que se corre al mes siguiente"
+          - "El RUT propio decide si el documento es emitido o recibido (el primer RUT es el del emisor) y nunca se propone como contraparte"
+          - "Dirección: emitida si el primer RUT válido del texto es el propio y recibida si es otro, también cuando el propio no aparece; sin RUT propio configurado o sin ningún RUT queda vacía. La contraparte es el primer RUT distinto del propio"
+          - "Toda propuesta de registro nace pendiente; nada pasa a la documentación de la empresa sin que la persona la confirme"
+        conformidad:
+          - id: WAW-C09
+            titulo: Trivial sin clasificar
+            cuando: llega «gracias!» o «vence el 30» (11 caracteres), sin adjunto, de un chat vigilado
+            entonces: ambos se guardan marcados como triviales y no se llama al clasificador
+          - id: WAW-K01
+            titulo: Bajo el umbral es dudoso
+            cuando: el clasificador responde una categoría con propuesta con confianza bajo {{min_confianza}}
+            entonces: el mensaje queda con su categoría y confianza, consultable como dudoso, y no hay propuesta
+          - id: WAW-K02
+            titulo: Categoría sin propuesta
+            cuando: el clasificador responde, con confianza alta, una categoría que no está en {{categorias_con_propuesta}}
+            entonces: el mensaje queda clasificado y no hay propuesta
+          - id: WAW-K03
+            titulo: Clasificador intercambiable
+            cuando: se reemplaza el clasificador por otro, o el clasificador falla
+            entonces: el flujo no cambia; si falla, el mensaje queda guardado y pendiente de clasificar
+          - id: WAW-K04
+            titulo: Tope diario
+            dado: el cupo diario del clasificador agotado
+            cuando: llega un mensaje vigilado
+            entonces: se guarda sin llamar al clasificador y se clasifica al reintentar con cupo
+          - id: WAW-K05
+            titulo: RUT propio
+            cuando: un documento trae el RUT propio y el de otra empresa
+            entonces: la contraparte es el otro RUT y la dirección es emitida si el propio va primero, recibida si no
+          - id: WAW-K09
+            titulo: Sin RUT propio en el texto
+            cuando: un documento trae solo RUT de otras empresas, o ningún RUT, o no hay RUT propio configurado
+            entonces: con otros RUT la contraparte es el primero y la dirección es recibida; sin ningún RUT o sin RUT propio configurado la dirección queda vacía
+          - id: WAW-N01
+            titulo: RUT con dígito verificador inválido
+            cuando: el texto trae un RUT cuyo dígito verificador no cumple módulo 11, o un número sin guion
+            entonces: no se extrae ningún RUT
+          - id: WAW-N02
+            titulo: Formatos de RUT equivalentes
+            cuando: el texto trae 12.345.678-5, 12345678-5 o «12.345.678- 5» (RUT ficticio)
+            entonces: los tres dan 12.345.678-5, una sola vez
+          - id: WAW-N03
+            titulo: Montos
+            cuando: el texto trae «$1.200.000», «1.200.000 CLP», «UF 35,5», «USD 120» o «Total a pagar $214.200» junto a un neto
+            entonces: se obtienen 1.200.000 CLP, 35,5 UF, 120 USD y, con total rotulado, ese total
+          - id: WAW-N07
+            titulo: Montos sin total rotulado
+            cuando: el texto trae «$ 50.000, luego USD 1,200.50 y subtotal $40.000», o «$1.200,50», o «US$ 120»
+            entonces: sin total rotulado gana 1.200,50 USD (USD va antes que «$»); «$1.200,50» da 1.200 CLP; «US$ 120» da 120 USD y ningún monto en CLP
+          - id: WAW-N04
+            titulo: Fechas
+            dado: un mensaje no trivial enviado el 10 de octubre de 2026
+            cuando: su texto o el de su adjunto dice «emitida el 05-10-2026, vence el 30 de octubre de 2026», o «la factura vence el 30», o «la factura vence el 5»
+            entonces: emisión 5 de octubre y vencimiento 30 de octubre; «vence el 30» es 30 de octubre y «vence el 5», 5 de noviembre; una fecha imposible se descarta
+          - id: WAW-N05
+            titulo: Folio
+            cuando: el texto del mensaje o de su adjunto trae «factura N° 4», «folio 1234», «pago con F-1234» o «Nº 77» solo en su línea
+            entonces: el folio es 4, 1234, 1234 y 77
+          - id: WAW-N08
+            titulo: Vencimiento por contexto y año del mensaje
+            dado: un mensaje enviado el 10 de diciembre de 2026
+            cuando: "dice «Vencimiento: 15/01/2027 y, aparte, emitida el 30 de octubre»"
+            entonces: el 15 de enero de 2027 es vencimiento (raíz «venc» en los {{contexto_vencimiento}} previos) y la emisión es el 30 de octubre de 2026, el año del mensaje aunque ya pasó
+          - id: WAW-N06
+            titulo: Cita por campo
+            cuando: se propone desde «Factura N° 4 de 12.345.678-5 por $1.200.000»
+            entonces: tipo factura, folio 4, RUT 12.345.678-5 y monto 1.200.000 CLP, cada uno con su cita, y la propuesta pendiente
+      - valor: "no"
+        descripcion: Los mensajes vigilados se guardan sin clasificar.
+        alcance: {excluye: ["Clasificar mensajes y proponer registros"]}
+        invariantes:
+          - "Ningún texto de un chat vigilado sale del equipo hacia un clasificador"
+        conformidad:
+          - id: WAW-K06
+            titulo: Nada sale al clasificador
+            cuando: se ingesta un mensaje no trivial de un chat vigilado
+            entonces: se guarda sin clasificar y no hay ninguna llamada al clasificador
+
+  - id: clasificador
+    si: {clasificacion: propuestas}
+    pregunta: ¿Qué clasificador se usa?
+    ayuda: Es un puerto; cambiarlo no toca la ingesta. El texto de los chats vigilados sale hacia él.
+    por_defecto: servicio
+    opciones:
+      - valor: servicio
+        descripcion: Un servicio externo de clasificación que elige una categoría entre opciones descritas.
+        depende_de:
+          - "Credencial del servicio por el entorno"
+          - "Un adaptador del puerto con el contrato del servicio (formato, autenticación y URL), que fija cada proyecto: recibe el texto armado y devuelve categoría, confianza y tokens"
+        invariantes:
+          - "Se registran los tokens de entrada y salida de cada llamada, por día"
+        conformidad:
+          - id: WAW-K07
+            titulo: Tokens por día
+            cuando: se hacen dos llamadas al clasificador el mismo día
+            entonces: el registro de ese día suma los tokens de entrada y salida de ambas
+      - valor: llm
+        descripcion: Un LLM (local o por API) instruido para elegir una sola categoría de la lista.
+        depende_de:
+          - "Credencial o modelo local configurado por el entorno"
+        invariantes:
+          - "El LLM solo elige la categoría y su confianza; los campos de la propuesta los saca siempre la normalización determinista"
+        conformidad:
+          - id: WAW-K08
+            titulo: El LLM solo elige
+            dado: un LLM que devuelve la categoría y además un RUT y un monto
+            cuando: se arma la propuesta
+            entonces: usa solo la categoría y la confianza del LLM; RUT, monto, fecha y folio salen de la normalización determinista
+
+pasos:
+  - id: sesion
+    accion: Abrir la sesión de la biblioteca en su propia base, con el historial a descarga manual, sin pedir reenvíos al teléfono y con {{nombre_dispositivo}} como nombre del dispositivo
+    produce: un cliente listo para vincular o conectar, cuyos errores terminales cortan el proceso con {{salida_terminal}}
+    verifica: [WAW-C06]
+  - id: sesion-sqlite
+    si: {base_sesion: sqlite}
+    accion: Crear la carpeta y el archivo de la sesión con {{permisos}}
+    produce: una sesión que nadie más que la persona puede leer
+    verifica: [WAW-C10]
+  - id: sesion-postgres
+    si: {base_sesion: postgres}
+    accion: Abrir la sesión en su esquema de Postgres con la conexión leída del entorno, y dar a los demás procesos un usuario de solo lectura
+    produce: una sesión cuya credencial no queda escrita y que solo el vigía modifica
+    verifica: [WAW-C12, WAW-C13]
+  - id: vinculacion-codigo
+    si: {vinculacion: codigo}
+    accion: Vincular con código de emparejamiento como {{nombre_emparejamiento}}, rechazando una sesión ya vinculada o un número inválido antes de conectar
+    produce: un dispositivo vinculado y un resultado claro para cada final del canal
+    verifica: [WAW-V01, WAW-V02, WAW-V03]
+  - id: vinculacion-qr
+    si: {vinculacion: qr}
+    accion: Vincular con QR, mostrando cada código nuevo apenas llega
+    produce: un dispositivo vinculado y un resultado claro para cada final del canal
+    verifica: [WAW-V01, WAW-V03, WAW-V04]
+  - id: vinculacion-ambos
+    si: {vinculacion: ambos}
+    accion: Vincular con código si se indica el número y con QR si no
+    produce: un dispositivo vinculado por cualquiera de las dos vías
+    verifica: [WAW-V01, WAW-V02, WAW-V03, WAW-V04]
+  - id: solo-lectura
+    accion: Escribir la prueba guardiana que recorre todo el código y falla si aparece una de {{apis_escritura}} fuera de los emisores permitidos (chat propio y, si se activan, terceros y peticiones al teléfono propio), cada uno con su prueba que fija sus llamadas exactas
+    produce: un vigía que no puede enviar, marcar como leído ni publicar presencia por descuido
+    verifica: [WAW-C02]
+  - id: lista-blanca
+    accion: Filtrar en el handler de eventos, antes de guardar o descargar, contra la lista blanca recargada cada {{recarga_lista_min}} min, solo en {{chats_soportados}}
+    produce: ningún rastro de los chats que no están en la lista
+    verifica: [WAW-C01, WAW-C07, WAW-C08]
+  - id: lista-externa
+    si: {fuente_lista_blanca: [servicio_externo, ambos]}
+    accion: Traer la lista desde el servicio externo cada {{sincroniza_lista_h}} h y reemplazar la copia en una transacción, tratando como falla una respuesta sin contactos válidos
+    produce: una lista al día que no se vacía si la fuente falla o llega vacía
+    verifica: [WAW-L01, WAW-L03]
+  - id: lista-manual
+    si: {fuente_lista_blanca: [manual, ambos]}
+    accion: Agregar contactos por nombre exacto desde la libreta de la sesión, con su modo
+    produce: contactos vigilados sin adivinar entre homónimos
+    verifica: [WAW-L02]
+  - id: grupos-a-mano
+    si: {grupos: a_mano}
+    accion: Guardar los nombres de los grupos al conectar y procesar solo los que la persona agrega
+    produce: grupos vigilados por decisión explícita
+    verifica: [WAW-G01]
+  - id: sin-grupos
+    si: {grupos: "no"}
+    accion: Descartar en la lista blanca todo chat de grupo antes de guardar nada
+    produce: solo chats 1:1 vigilados
+    verifica: [WAW-G02]
+  - id: historial
+    accion: Guardar sin descargar ni descifrar los avisos de historial mientras no haya lista blanca (al vincular, el proceso sigue conectado {{captura_historial}} tras el éxito, sin procesar nada, y recién entonces cierra) y procesarlos al llegar la lista o al reconectar
+    produce: el historial disponible sin leer conversaciones ajenas a la lista
+    verifica: [WAW-C05]
+  - id: ingesta
+    accion: Encolar lo aceptado (esperando si la cola está llena) y procesarlo aparte con {{reintentos_ingesta}}, guardando idempotente por (chat, id del mensaje) y descargando adjuntos hasta {{tope_adjunto_mb}} MB; agotados los reintentos, descartar con un log sin contenido
+    produce: mensajes guardados una vez, sin bloquear la conexión, con sus adjuntos por huella
+    verifica: [WAW-C03, WAW-C04, WAW-C11, WAW-C14]
+  - id: recuperar
+    si: {recuperar_adjuntos: pedir_al_telefono}
+    accion: Pedir al teléfono propio la re-subida de un adjunto expirado (desde la descarga) o, con una tarea cada {{recuperar_cada_min}} min, el tramo de historial de los adjuntos faltantes, desde un solo archivo con dos llamadas fijadas por su prueba guardiana
+    produce: adjuntos antiguos recuperados sin escribirle a nadie
+    verifica: [WAW-R01, WAW-R02, WAW-R03, WAW-R05]
+  - id: sin-recuperar
+    si: {recuperar_adjuntos: "no"}
+    accion: Marcar como faltante el adjunto expirado, sin ningún código que haga peticiones al teléfono, con su prueba guardiana
+    produce: adjuntos expirados visibles como faltantes, sin escribirle al teléfono
+    verifica: [WAW-R04]
+  - id: servicio
+    accion: Instalar el servicio de usuario que arranca tras la red, reinicia a los {{reinicio_servicio}} ante fallas, no reinicia con {{salida_terminal}} y corre con máscara 077
+    produce: un vigía siempre encendido que no golpea a WhatsApp con una sesión revocada
+    verifica: [WAW-C06]
+  - id: chat-propio
+    accion: Desviar al agente los mensajes en vivo del chat propio escritos desde otro dispositivo, en su propia cola y en orden, y responder solo por el emisor cuyo destino sale de la sesión, con {{marca_respuesta}}
+    produce: una consola en el celular que nadie más puede activar y que no se responde a sí misma
+    verifica: [WAW-P01, WAW-P02, WAW-P03, WAW-P04]
+  - id: activacion-permanente
+    si: {activacion: escucha_permanente}
+    accion: Atender todo texto del chat propio y silenciarlo con «{{prefijo}} close» hasta el próximo mensaje con prefijo que no sea un cierre, con el silencio solo en memoria
+    produce: una consola que responde sin prefijo y que la persona puede callar
+    verifica: [WAW-P05, WAW-P08]
+  - id: activacion-prefijo
+    si: {activacion: prefijo}
+    accion: "Atender solo «{{prefijo}} <pregunta>» o «{{prefijo}}: <pregunta>», con la pregunta sin el prefijo"
+    produce: un chat propio que sigue sirviendo de cuaderno de notas y solo responde lo que se le pide
+    verifica: [WAW-P06]
+  - id: activacion-ventana
+    si: {activacion: ventana}
+    accion: Abrir la escucha {{ventana_escucha_h}} h con cada mensaje con prefijo
+    produce: una escucha que se abre al pedir y se cierra sola
+    verifica: [WAW-P07]
+  - id: aprobacion
+    accion: Proponer cada acción en un mensaje propio guardado con su id, vencimiento de {{vence_propuesta_min}} min, y ejecutarla solo con {{emoji_aprobar}} sobre ese mensaje mediante un reclamo atómico; avisar avance y resultado
+    produce: acciones que solo ocurren con un gesto explícito de la persona y que siempre reciben respuesta
+    verifica: [WAW-A01, WAW-A02, WAW-A03, WAW-A04, WAW-A05, WAW-A06, WAW-A07, WAW-A08]
+  - id: cola-salida
+    accion: Encolar los documentos en la cola de salida y drenarla cada {{outbox_cada_s}} s (la primera vez a los {{primer_envio}}) desde el proceso con la sesión, en lotes de {{outbox_lote}} y hasta {{outbox_max_intentos}} intentos
+    produce: adjuntos en el chat propio en orden de encolado, reintentados ante fallas de envío sin frenar a los demás y marcados en error cuando el archivo no sirve
+    verifica: [WAW-O01, WAW-O02, WAW-O03, WAW-O04]
+  - id: cola-salida-base
+    si: {persistencia_outbox: base}
+    accion: Guardar la cola en una tabla de la base del proyecto
+    produce: entregas que sobreviven a un reinicio y que otro proceso puede pedir
+    verifica: [WAW-O05]
+  - id: cola-salida-memoria
+    si: {persistencia_outbox: memoria}
+    accion: Guardar la cola en memoria del proceso que tiene la sesión, sin otra vía para encolar
+    produce: una cola simple que no sobrevive al reinicio y que solo usa el vigía
+    verifica: [WAW-O06]
+  - id: sin-terceros
+    si: {envio_terceros: "no"}
+    accion: Dejar como único emisor el del chat propio, sin parámetro de destinatario, con su prueba guardiana
+    produce: un vigía que solo puede escribirle a la persona
+    verifica: [WAW-T09]
+  - id: terceros
+    si: {envio_terceros: documentos_con_like}
+    accion: Agregar el puerto y el adaptador de envío a terceros, validar el destinatario en WhatsApp, aplicar los topes y ejecutar el envío solo como acción aprobada con 👍, con sus pruebas guardianas
+    produce: una única compuerta auditada hacia terceros
+    verifica: [WAW-T01, WAW-T02, WAW-T03, WAW-T04, WAW-T05, WAW-T06, WAW-T07, WAW-T08]
+  - id: clasificacion
+    si: {clasificacion: propuestas}
+    accion: Descartar triviales, clasificar con el puerto intercambiable bajo el cupo diario, normalizar sin IA con cita por campo y proponer según el umbral
+    produce: propuestas de registro pendientes, cada dato con su origen, y los dudosos a la vista
+    verifica: [WAW-C09, WAW-K01, WAW-K02, WAW-K03, WAW-K04, WAW-K05, WAW-K09, WAW-N01, WAW-N02, WAW-N03, WAW-N04, WAW-N05, WAW-N06, WAW-N07, WAW-N08]
+  - id: sin-clasificacion
+    si: {clasificacion: "no"}
+    accion: Guardar los mensajes vigilados sin clasificar y sin puerto de clasificador conectado
+    produce: ningún texto de los chats sale del equipo
+    verifica: [WAW-K06]
+  - id: clasificador-servicio
+    si: {clasificador: servicio}
+    accion: Conectar el servicio de clasificación al puerto (con el contrato que fija el proyecto), con la credencial por el entorno, y sumar por día los tokens de entrada y salida de cada llamada
+    produce: un clasificador intercambiable con su consumo registrado
+    verifica: [WAW-K07]
+  - id: clasificador-llm
+    si: {clasificador: llm}
+    accion: Conectar el LLM al puerto pidiéndole solo la categoría y su confianza, e ignorar cualquier otro campo que devuelva
+    produce: propuestas cuyos datos salen siempre de la normalización determinista
+    verifica: [WAW-K08]
+
+ficha:
+  nombre: WhatsApp Web como dispositivo vinculado
+  objetivo_operativo:
+    problema: >
+      Facturas, documentos y acuerdos llegan por WhatsApp a un número personal y quedan dispersos en el teléfono; desde
+      el celular no hay cómo pedirle algo al sistema ni aprobar una acción. Conectar un cliente no oficial a ese número
+      arriesga la cuenta si envía de más, y un mensaje mal interpretado que llega a un tercero no se puede deshacer.
+    usuarios: >
+      La persona dueña del número (la que vincula, conversa con el agente en su chat propio y aprueba), el equipo que
+      opera el servicio y, del otro lado, los contactos de la lista blanca y los terceros que reciben documentos.
+    criterio_de_exito: >
+      Todos los escenarios de conformidad pasan como pruebas automatizadas del proyecto: ningún chat fuera de la lista
+      blanca deja rastro, ninguna API de escritura aparece fuera de los emisores permitidos, ninguna acción ni envío
+      ocurre sin un 👍 sobre su propuesta y cada documento pedido llega al chat propio.
+  objetivo_tecnologico:
+    arquitectura: >
+      Un proceso de larga vida (servicio de usuario) es el único que abre la sesión de la biblioteca: conecta, registra
+      un handler de eventos que filtra contra la lista blanca y encola lo aceptado para un worker con reintentos; el
+      chat propio va a otra cola, atendida en orden por el agente. La salida pasa por emisores mínimos: uno al chat
+      propio (sin parámetro de destinatario), uno a terceros (solo destinatario validado) si se permite el envío, y uno
+      de peticiones al teléfono propio si se recuperan adjuntos; una prueba guardiana revisa el código fuente. Los demás procesos (herramientas del
+      agente) solo leen la base del proyecto y, si la cola de salida vive en la base, encolan en ella. Un motor de aprobación guarda cada propuesta
+      con el id de su mensaje y la ejecuta con el 👍. El dominio (lista blanca, triviales, aprobación, normalización)
+      es puro y se prueba sin red.
+    decisiones:
+      - "WhatsApp Web con whatsmeow como dispositivo vinculado: la API oficial no sirve para un número personal ni entrega historial"
+      - "Un solo proceso conecta la sesión (la biblioteca admite una por proceso); las herramientas del agente encolan y leen la base del proyecto, nunca la sesión"
+      - "La sesión es solo de la biblioteca; los mensajes, adjuntos, propuestas, acciones y la cola van en la base del proyecto"
+      - "El historial se descarga a mano y solo con lista blanca; no se piden al teléfono reenvíos de mensajes que no se pudieron descifrar"
+      - "El handler no hace IO lento: filtra y encola en {{cola_ingesta}}; un worker procesa con {{reintentos_ingesta}}"
+      - "Puertos separados para escribir al chat propio (con el id del mensaje), adjuntar en el chat propio, enviar a terceros y clasificar"
+      - "Los teléfonos se guardan en E.164 ({{pais_telefono}}); un chat que llega por LID se resuelve al número con la dirección alternativa del mensaje o el mapa de LID de la sesión, y si no se puede, no calza con la lista"
+      - "Servicio de usuario con reinicio ante fallas tras {{reinicio_servicio}}, sin reinicio con {{salida_terminal}} y máscara 077"
+      - "Una acción por mensaje y a lo más {{max_propuestas}} por respuesta, para que el 👍 caiga sobre una sola"
+      - "Los adjuntos se guardan nombrados por su sha256"
+    invariantes:
+      - "Solo lectura por construcción: nada marca como leído, publica presencia ni escribe, salvo los emisores permitidos; la prueba guardiana busca {{apis_escritura}} en todo el código"
+      - "Un mensaje de un chat fuera de la lista blanca se descarta en el handler: no se guarda, no se descarga, no se clasifica y su contenido no se registra"
+      - "Solo se procesan {{chats_soportados}}; estados, difusiones y canales se ignoran"
+      - "En modo solo documentos, un mensaje sin adjunto se descarta sin guardarse"
+      - "Sin lista blanca, los avisos de historial se guardan con {{permisos}} sin descargarlos ni descifrarlos, y se borran apenas se procesan"
+      - "La clave de un mensaje es (chat, id del mensaje): un evento repetido o el mismo mensaje en el historial no se procesa dos veces"
+      - "El adjunto se describe antes de descargarlo; se descarga solo después de la lista blanca y si su tamaño declarado no pasa {{tope_adjunto_mb}} MB; si la descarga falla, el mensaje se guarda igual"
+      - "Solo documentos e imágenes cuentan como adjunto (para descargar y para el modo solo documentos); audios, videos y stickers no"
+      - "Los mensajes propios escritos en un chat vigilado se ingieren como parte de esa conversación, marcados como propios, y se clasifican igual; solo los del chat propio van al agente"
+      - "Si la cola en memoria se llena, el handler espera a que haya lugar; si guardar falla tras {{reintentos_ingesta}}, el mensaje se descarta con un log de error sin contenido (teléfono enmascarado e id) y solo vuelve si WhatsApp lo entrega otra vez, p. ej. en el historial"
+      - "Con la lista blanca vacía en la base, el vigía arranca igual: el chat propio funciona, los mensajes de otros chats se descartan y los avisos de historial se guardan sin leer hasta que llegue una lista"
+      - "Sesión, adjuntos e historial quedan con {{permisos}}"
+      - "Los teléfonos van enmascarados en logs y bitácora"
+      - "Sesión revocada u otra instancia con la misma sesión detienen el proceso con {{salida_terminal}}"
+      - "El chat propio atiende solo mensajes en vivo, escritos por la persona desde otro dispositivo y sin la marca del agente; el historial nunca dispara respuestas"
+      - "Los mensajes del chat propio nunca pasan por la ingesta de la lista blanca"
+      - "El destino del chat propio sale de la sesión; el emisor no recibe destinatario"
+      - "Todo mensaje del agente en el chat propio empieza con {{marca_respuesta}}"
+      - "Una acción se ejecuta solo con {{emoji_aprobar}} de la persona, en su chat propio, sobre el mensaje de una propuesta pendiente, antes de su vencimiento y una sola vez (reclamo atómico en la base)"
+      - "Un texto («sí», «dale», «ok»), una nota de voz o el propio modelo nunca ejecutan una acción: las herramientas que ejecutan quedan negadas para el modelo y solo las corre el flujo del 👍"
+      - "Si el sistema que ejecuta tiene dos pasos (vista previa y confirmación), al aprobar se pide una vista previa nueva y se compara con lo propuesto; si no coincide, no se ejecuta y se avisa"
+      - "No se repite una propuesta vigente para el mismo objeto"
+      - "Toda acción aprobada avisa al ejecutar, a lo más un avance cada {{aviso_avance_min}} min mientras dure y siempre su resultado, también si falló"
+      - "Una tarea que se vigila en segundo plano se entrega una sola vez; la clave queda en la base y un reinicio no la repite ni la pierde"
+      - "Ese «una sola vez» es del encolado: antes de encolar se revisa si su archivo principal ya está en la cola (y no en error), se encolan todos sus archivos en una transacción y recién después se cierra la clave"
+      - "Un reinicio entre encolar y cerrar no la duplica, y una terminada sin cerrar se encola al arrancar; su llegada al chat es la de la cola de salida: al menos una vez, dentro de sus intentos"
+      - "El aviso de una tarea fallida se manda antes de cerrar su clave: un reinicio entre ambos pasos lo repite (al menos una vez)"
+      - "Quien encola en la cola de salida no envía; solo el proceso con la sesión drena, en orden de encolado"
+      - "Una entrega está pendiente, enviada o en error. Error es solo un problema del archivo, sin reintento; una falla de envío suma un intento y guarda el último error, y al llegar a {{outbox_max_intentos}} sigue pendiente pero ya no se toma"
+      - "Una falla no corta el lote: se sigue con las demás, así que una reintentada puede llegar después de otras encoladas más tarde. Si el envío sale pero no se alcanza a marcar, se repite en el siguiente drenaje (al menos una vez)"
+      - "Un archivo que no existe, no es regular, no es una ruta absoluta sin «..» o pasa {{tope_outbox_mb}} MB es error permanente; una falla de envío se reintenta"
+      - "Una entrega pedida por la persona se atiende siempre, aunque haya horas de silencio para los avisos por iniciativa del agente"
+      - "Propuestas, acciones, envíos y entregas no se borran: cambian de estado"
+      - "Los secretos (credenciales del clasificador o de la base) llegan solo por el entorno; nunca en la configuración versionada, los logs ni los argumentos"
+
+conformidad:
+  - id: WAW-C01
+    titulo: Chat fuera de la lista blanca
+    cuando: llega un mensaje con adjunto de un número que no está en la lista blanca
+    entonces: no se guarda nada, no se descarga el adjunto y no se llama al clasificador
+  - id: WAW-C02
+    titulo: Sin APIs de escritura
+    cuando: aparece una de {{apis_escritura}} en cualquier archivo que no sea un emisor permitido
+    entonces: la prueba guardiana falla nombrando el archivo y la llamada
+  - id: WAW-C03
+    titulo: Idempotencia por (chat, id)
+    cuando: el mismo mensaje llega dos veces (en vivo por LID y en el historial por número, o repetido)
+    entonces: se guarda una sola vez, con el chat resuelto al número como clave, y si hay clasificación se clasifica y se propone una sola vez
+  - id: WAW-C04
+    titulo: Adjunto sobre el tope
+    cuando: llega un adjunto que declara más de {{tope_adjunto_mb}} MB y otro bajo el tope
+    entonces: el grande no se descarga y su mensaje se guarda; el chico se descarga y se guarda por su huella
+  - id: WAW-C05
+    titulo: Historial guardado sin leer
+    dado: un aviso de historial recibido sin lista blanca
+    cuando: llega dos veces, luego falla su proceso y después se procesa bien
+    entonces: se guarda una sola vez, sigue pendiente tras la falla y se borra al procesarse
+  - id: WAW-C06
+    titulo: Error terminal sin reinicio
+    cuando: WhatsApp revoca el dispositivo u otra instancia abre la misma sesión
+    entonces: el proceso termina con {{salida_terminal}} y el servicio no se reinicia; otras fallas salen con 1 y se reintentan
+  - id: WAW-C07
+    titulo: Chats soportados
+    cuando: llegan mensajes de un estado, una difusión o un canal
+    entonces: se ignoran; los chats 1:1 que llegan por LID se resuelven a su número
+  - id: WAW-C08
+    titulo: Modo solo documentos
+    dado: un contacto vigilado en modo solo documentos
+    cuando: manda un texto sin adjunto y luego un documento
+    entonces: el texto se descarta sin guardarse y el documento se procesa
+  - id: WAW-C11
+    titulo: Espera creciente ante una base ocupada
+    cuando: guardar un mensaje falla porque la base está ocupada
+    entonces: se reintenta con una espera que se duplica desde 1 s hasta 1 min, sin bloquear la recepción de eventos
+  - id: WAW-C14
+    titulo: Reintentos de guardado agotados
+    cuando: guardar un mensaje falla en todos sus reintentos
+    entonces: el mensaje se descarta con un log de error que solo trae el teléfono enmascarado y el id, y el worker sigue con el siguiente
+  - id: WAW-P01
+    titulo: Solo el chat propio
+    cuando: llegan mensajes del chat propio (por número o por LID), uno mío a otra persona, uno de otra persona y uno de grupo
+    entonces: solo los del chat propio van al agente
+  - id: WAW-P02
+    titulo: Sin bucles
+    cuando: en el chat propio llega un mensaje del historial, uno enviado por este dispositivo vinculado o uno con la marca del agente
+    entonces: ninguno dispara una respuesta
+  - id: WAW-P03
+    titulo: Destino único
+    cuando: se revisa el código del emisor al chat propio
+    entonces: todo envío va al chat propio que sale de la sesión y la única subida es la del documento propio
+  - id: WAW-P04
+    titulo: Sin sesión no hay destino
+    cuando: se intenta escribir en el chat propio con una sesión sin vincular
+    entonces: falla con un error claro y no envía nada
+  - id: WAW-A01
+    titulo: El 👍 ejecuta una vez
+    dado: una propuesta de acción vigente
+    cuando: la persona reacciona 👍 dos veces (la segunda con tono de piel)
+    entonces: la acción se ejecuta una sola vez y queda registrada como aprobada por reacción
+  - id: WAW-A02
+    titulo: Un «sí» escrito no ejecuta
+    dado: una propuesta de acción vigente
+    cuando: la persona escribe «sí», «dale», «ok», «👍» o «apruebo» en el chat
+    entonces: no se ejecuta nada
+  - id: WAW-A03
+    titulo: Vencida no se ejecuta
+    dado: una propuesta cuyo plazo de {{vence_propuesta_min}} min pasó
+    cuando: llega el 👍
+    entonces: no se ejecuta y la propuesta queda vencida
+  - id: WAW-A04
+    titulo: Otra reacción no ejecuta
+    cuando: la persona reacciona con otro emoji, quita la reacción o reacciona 👍 a otro mensaje
+    entonces: no se ejecuta nada
+  - id: WAW-A05
+    titulo: Siempre hay resultado
+    cuando: una acción aprobada falla
+    entonces: queda fallida y el chat propio recibe el aviso con el motivo, con la marca del agente
+  - id: WAW-A06
+    titulo: Avance acotado
+    dado: una tarea larga en curso vista por primera vez
+    cuando: pasan menos de {{aviso_avance_min}} min, luego {{aviso_avance_min}} min y luego un minuto más
+    entonces: no hay aviso, después uno y después ninguno
+  - id: WAW-A07
+    titulo: Una sola entrega por tarea
+    dado: una tarea en segundo plano terminada y no entregada
+    cuando: el servicio se reinicia, también justo después de encolar sus archivos y antes de cerrar su clave
+    entonces: sus archivos se encolan una sola vez (al arrancar si no estaban en la cola); si ya estaban en la cola o la tarea estaba cerrada, no se repiten
+  - id: WAW-A08
+    titulo: Vista previa nueva al aprobar
+    dado: una acción de dos pasos en el sistema que la ejecuta
+    cuando: la persona aprueba con 👍 y la vista previa nueva no coincide con lo propuesto
+    entonces: no se ejecuta y se avisa la diferencia
+  - id: WAW-O01
+    titulo: Orden y lote
+    cuando: se encolan tres documentos con lote de dos
+    entonces: el primer drenaje envía los dos primeros en orden, con su pie, y el segundo el tercero
+  - id: WAW-O02
+    titulo: Reintento con tope
+    cuando: el envío de una entrega falla en cada drenaje y la siguiente del lote sí se puede enviar
+    entonces: la siguiente sale en el mismo drenaje; la fallida queda pendiente con sus intentos contados y su último error y, al llegar a {{outbox_max_intentos}}, sigue pendiente (no pasa a error) pero deja de tomarse
+  - id: WAW-O03
+    titulo: Error permanente
+    cuando: el archivo de una entrega no existe y la siguiente sí
+    entonces: la primera queda en error sin reintentarse y la segunda se envía
+  - id: WAW-O04
+    titulo: Ruta segura y tope
+    cuando: la entrega apunta a una ruta relativa, con «..», a una carpeta o a un archivo sobre el tope
+    entonces: no se lee y queda en error con el motivo
+
+referencias:
+  - referencias/go
