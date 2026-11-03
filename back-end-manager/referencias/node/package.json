@@ -1,0 +1,18 @@
+{
+  "name": "back-end-manager-referencia-node",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "test": "node --test",
+    "build": "esbuild src/lambda.mjs --bundle --platform=node --target=node22 --format=esm --minify --sourcemap --outfile=dist/lambda.mjs --define:__APP_VERSION__=\\\"$APP_VERSION\\\" --banner:js=\"import { createRequire } from 'module'; const require = createRequire(import.meta.url);\"",
+    "local": "node src/local.mjs"
+  },
+  "dependencies": {
+    "express": "5.1.0",
+    "serverless-http": "4.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.10"
+  }
+}
