@@ -1,0 +1,71 @@
+# Despliegue de la API (credenciales_ci=oidc, ambientes=qa_y_prod, vuelta_atras=redesplegar).
+# Pruebas → build → despliegue → smoke test con versión. Un despliegue por ambiente a la vez.
+# Vuelta atrás: Actions → este workflow → Run workflow con ref = el último commit bueno.
+name: Deploy API
+
+on:
+  push:
+    branches: [main, qa]
+    paths: ['cmd/**', 'internal/**', 'go.mod', 'go.sum', 'serverless.yml', '.github/workflows/deploy-api.yml']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit, tag o rama a desplegar (vuelta atrás)
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.ref || github.sha }}' }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }      # misma versión de Go en todos los jobs (BEM-C24)
+      - run: go vet ./...
+      - run: go test -short ./...              # incluye la prueba de variables declaradas (BEM-C08)
+
+  deploy:
+    needs: test                                # sin pruebas verdes no se despliega (BEM-C20)
+    runs-on: ubuntu-latest
+    environment: ${{ (github.ref_name == 'main' || inputs.ref != '') && 'prod' || 'qa' }}   # prod con revisores obligatorios
+    concurrency:
+      group: deploy-api-${{ (github.ref_name == 'main' || inputs.ref != '') && 'prod' || 'qa' }}
+      cancel-in-progress: false                # nunca se corta un despliegue a medias (BEM-C19)
+    permissions:
+      id-token: write                          # OIDC
+      contents: read
+    env:
+      STAGE: ${{ (github.ref_name == 'main' || inputs.ref != '') && 'prod' || 'qa' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.ref || github.sha }}' }
+      - uses: actions/setup-go@v5
+        with: { go-version-file: go.mod }
+      - name: Build
+        run: |
+          COMMIT=$(git rev-parse HEAD)
+          echo "COMMIT=$COMMIT" >> "$GITHUB_ENV"
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags lambda.norpc -trimpath \
+            -ldflags "-s -w -X main.version=$COMMIT" -o bootstrap ./cmd/api-lambda
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}   # rol de despliegue del environment; la confianza limita repo y environment
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Deploy
+        env:                                   # los secretos solo por env, nunca en argumentos ni echo
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+        run: npx --yes serverless@3 deploy --stage "$STAGE" --region "${{ vars.AWS_REGION }}"
+      - name: Smoke test (versión desplegada = commit)
+        env:
+          API_URL: ${{ vars.API_URL }}
+        run: |
+          for i in $(seq 1 12); do
+            body=$(curl -fsS --max-time 5 "$API_URL/health" || true)
+            echo "$body" | grep -q "\"version\":\"$COMMIT\"" && { echo "ok: $COMMIT"; exit 0; }
+            sleep 5
+          done
+          echo "::error::/health no informa $COMMIT tras 60 s"; exit 1

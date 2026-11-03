@@ -1,0 +1,1080 @@
+# Blueprint QDD (back-end-manager): API serverless en AWS Lambda, en Go o en Node, y su despliegue.
+# Cómo se construye, configura, despliega y opera una API HTTP sobre AWS Lambda detrás de API Gateway, con su
+# frontend estático opcional en S3 + CloudFront, desde un pipeline de CI. Independiente del lenguaje: las reglas valen
+# igual en Go y en Node, y lo propio de cada uno va en la pregunta «lenguaje». Sirve para un proyecto nuevo o para uno
+# ya armado (con 'qdd blueprint apply' se ve lo que le falta). Destilado de APIs en producción y de los fallos que se
+# repitieron en ellas: secretos con valor por defecto, variables que el despliegue borra, CORS que refleja el origen o
+# abre todo, trabajo que muere al responder, conexiones que el pooler no acepta, buckets vaciados por un sync, stacks
+# borrados antes de cada despliegue y runtimes vencidos.
+# Referencias en Go y en Node (entrada, configuración, CORS, pruebas) y manifiesto y pipelines de ejemplo en referencias/.
+#
+#   qdd blueprint add back-end-manager
+#   qdd blueprint apply back-end-manager
+#   qdd modules approve back-end-manager
+id: back-end-manager
+nombre: "Back-end manager: API serverless en AWS Lambda (Go o Node)"
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+descripcion: >
+  Una API HTTP corre como una función Lambda detrás de API Gateway, escrita en Go o en Node, con un router HTTP
+  estándar del lenguaje adaptado al evento del gateway, de modo que el mismo código corre en local, en pruebas y en la
+  nube. La infraestructura vive en un manifiesto versionado, la configuración llega como variables de entorno
+  declaradas una por una, los secretos son obligatorios al arrancar y el despliegue lo hace solo el CI, que prueba,
+  construye, despliega, verifica con un smoke test que la versión desplegada es la del commit y permite volver atrás.
+  Cubre CORS, límites de tiempo y tamaño, base de datos desde Lambda, red (VPC), archivos en S3, trabajo largo fuera de
+  la respuesta, frontend estático, observabilidad y permisos.
+
+alcance:
+  incluye:
+    - "La función: entrada, adaptador HTTP, arranque en frío, plazos y límites de la plataforma, en Go o en Node"
+    - "El build (binario en Go, bundle en Node) y su empaquetado (zip o imagen de contenedor)"
+    - "El manifiesto de infraestructura, los ambientes, la red y el aislamiento de sus recursos"
+    - "La configuración por variables de entorno, los secretos y su paso desde el CI"
+    - "El pipeline de despliegue: pruebas, credenciales de AWS, concurrencia, smoke test, deriva y vuelta atrás"
+    - "CORS, límites de tamaño del cuerpo, archivos grandes por URL prefirmada y respuestas binarias"
+    - "Base de datos desde Lambda: pool, pooler y sentencias preparadas"
+    - "Trabajo que no cabe en la respuesta: colas o un servicio aparte"
+    - "Frontend estático en S3 + CloudFront: caché, ruteo de SPA, invalidación y variables públicas"
+    - "Logs, métricas, alarmas, request id y permisos IAM de la función y del despliegue"
+  excluye:
+    - "Autenticación y autorización de usuarios (es del blueprint auth)"
+    - "Las reglas de negocio de cada endpoint"
+    - "Servicios de larga vida (bots, WebSockets propios, workers) más allá de cómo se conectan con la API"
+    - "La elección de proveedor de base de datos y su esquema"
+    - "Costos y planes de AWS más allá de las decisiones que los cambian (arquitectura, memoria, retención)"
+
+vocabulario:
+  - termino: función
+    definicion: >
+      La función Lambda que atiende la API: el código (un binario en Go, un bundle en Node) con su runtime, su
+      memoria, su timeout, su rol de ejecución y sus variables de entorno.
+  - termino: entorno de ejecución
+    definicion: >
+      La instancia (contenedor) que Lambda crea para la función. Atiende una invocación a la vez, se reutiliza entre
+      invocaciones y puede desaparecer en cualquier momento; con N peticiones simultáneas hay N entornos.
+  - termino: arranque en frío
+    definicion: >
+      La fase init de un entorno nuevo: en Go, la inicialización del paquete y el main hasta registrar el handler; en
+      Node, el nivel superior del módulo. Lo que se prepara ahí (configuración, pool, clientes, router) sirve a las
+      invocaciones siguientes del entorno.
+  - termino: invocación
+    definicion: Una petición atendida por un entorno; tiene un plazo (el timeout de la función) y un request id.
+  - termino: congelamiento
+    definicion: >
+      Lo que hace Lambda con el entorno apenas el handler responde: suspende todo el proceso. Una goroutine (Go) o una
+      promesa sin await (Node) que quedó corriendo puede seguir en otra invocación, mucho después, o no seguir nunca.
+  - termino: adaptador
+    definicion: >
+      La pieza que convierte el evento del gateway en una petición HTTP del router, y su respuesta en el evento de
+      respuesta (aws-lambda-go-api-proxy en Go, serverless-http en Node). Los handlers quedan sin código de Lambda.
+  - termino: gateway
+    definicion: >
+      API Gateway frente a la función: HTTP API (payload 2.0, más simple y barato) o REST API (payload 1.0, con planes
+      de uso, API keys y validación de peticiones). También puede ser una Function URL sin gateway.
+  - termino: manifiesto de infraestructura
+    definicion: >
+      El archivo versionado que declara la función, sus eventos, sus variables, sus permisos y sus recursos (Serverless
+      Framework, SAM, Terraform o CDK). Es la fuente única: lo que se cambia en la consola se pierde en el próximo
+      despliegue.
+  - termino: ambiente
+    definicion: >
+      Una copia completa del sistema (p. ej. qa y prod), con su stage, su función, su gateway y sus recursos aislados:
+      buckets, esquema o base, colas y dominio propios.
+  - termino: variable declarada
+    definicion: >
+      Una variable de entorno que el manifiesto define para la función. Una variable que el código lee y el manifiesto
+      no declara no existe en la nube aunque exista en local.
+  - termino: secreto
+    definicion: >
+      Credencial o llave (de base de datos, de firma, de un tercero). Nunca está en el repositorio, nunca tiene valor
+      por defecto en el código y nunca se imprime.
+  - termino: rol de ejecución
+    definicion: El rol IAM que asume la función al correr; define a qué recursos de AWS puede llegar el código.
+  - termino: rol de despliegue
+    definicion: >
+      La identidad con que el CI crea y actualiza la infraestructura. Es distinta del rol de ejecución y nunca se le
+      pasa a la función.
+  - termino: smoke test
+    definicion: >
+      La llamada que el pipeline hace a la API recién desplegada (p. ej. /health) para confirmar que responde y que
+      la versión que informa es la del commit desplegado.
+  - termino: deriva
+    definicion: >
+      Diferencia entre lo que corre en la nube y lo que dice el repositorio (otro commit, otra configuración, un
+      cambio hecho a mano en la consola).
+  - termino: presupuesto de tiempo
+    definicion: >
+      El plazo que se da a sí mismo un handler, menor que el corte del gateway, para responder con un error propio
+      (con sus cabeceras) antes de que el gateway corte la conexión.
+  - termino: preflight
+    definicion: >
+      La petición OPTIONS que el navegador manda antes de una petición entre orígenes con cabeceras o métodos no
+      simples; si no recibe las cabeceras CORS correctas, la petición real no sale.
+  - termino: origen permitido
+    definicion: Esquema + dominio + puerto (p. ej. https://app.ejemplo.com) desde el que el navegador puede llamar a la API.
+  - termino: URL prefirmada
+    definicion: >
+      URL temporal firmada por la API que deja al navegador subir o bajar un objeto de S3 directo, sin pasar el
+      archivo por la función.
+  - termino: pooler
+    definicion: >
+      Proxy de conexiones entre la función y PostgreSQL (PgBouncer, Supavisor, RDS Proxy). En modo transacción una
+      conexión del servidor se presta solo por la duración de una transacción; en modo sesión, por toda la conexión.
+  - termino: vuelta atrás
+    definicion: Volver a la última versión buena de la función en minutos, sin arreglar el código primero.
+
+parametros:
+  - id: region
+    pregunta: ¿En qué región de AWS corre la API?
+    ayuda: Cerca de los usuarios y de la base de datos; la latencia entre la función y la base pesa en cada consulta.
+    tipo: texto
+    por_defecto: us-east-1
+    ejemplos: ["us-east-1", "sa-east-1", "eu-west-1"]
+  - id: memoria
+    pregunta: ¿Cuántos MB de memoria tiene la función?
+    ayuda: >
+      La CPU crece con la memoria. Más memoria suele bajar la duración y a veces el costo; se mide con la duración p95
+      real, no se adivina.
+    tipo: numero
+    por_defecto: "512"
+    ejemplos: ["256", "512", "1024"]
+  - id: timeout
+    pregunta: ¿Cuántos segundos es el timeout de la función?
+    ayuda: Detrás de un gateway, nunca más que su corte de integración; sin gateway (Function URL), hasta 900.
+    tipo: numero
+    por_defecto: "29"
+    ejemplos: ["10", "29"]
+  - id: presupuesto
+    pregunta: ¿Cuántos segundos tiene como máximo un handler antes de responder un error propio?
+    ayuda: Unos segundos menos que el timeout, para alcanzar a responder con cabeceras CORS y un mensaje claro.
+    tipo: numero
+    por_defecto: "25"
+    ejemplos: ["15", "25"]
+  - id: retencion_logs
+    pregunta: ¿Cuántos días se guardan los logs de la función?
+    ayuda: Sin retención los logs se guardan para siempre y se pagan para siempre.
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["14", "30", "90"]
+  - id: vida_url
+    pregunta: ¿Cuántos minutos vale una URL prefirmada de S3?
+    ayuda: Lo justo para empezar la subida o la descarga; una URL que se filtra sirve mientras viva.
+    tipo: numero
+    por_defecto: "15"
+    ejemplos: ["5", "15", "60"]
+  - id: max_cuerpo
+    pregunta: ¿Cuántos KB acepta como máximo el cuerpo de una petición JSON?
+    ayuda: Lo que pase de ahí responde 413 sin leerse; los archivos van por URL prefirmada.
+    tipo: numero
+    por_defecto: "1024"
+    ejemplos: ["64", "1024"]
+  - id: conexiones
+    si: {base_datos: [postgres_transaccion, postgres_sesion]}
+    pregunta: ¿Cuántas conexiones abiertas a la base tiene como máximo cada entorno de ejecución?
+    ayuda: >
+      Un entorno atiende una petición a la vez: 1 o 2 bastan. El total es esto por la concurrencia de la función, y
+      tiene que caber en el pooler.
+    tipo: numero
+    por_defecto: "2"
+    ejemplos: ["1", "2"]
+  - id: concurrencia
+    pregunta: ¿Cuántos entornos simultáneos puede tener la función como máximo (concurrencia reservada)?
+    ayuda: >
+      Protege la base y a los terceros de un pico; con 0 se usa la cuota de la cuenta sin reserva. Un pico sobre el
+      tope responde 429 en vez de tumbar la base.
+    tipo: numero
+    por_defecto: "50"
+    ejemplos: ["0", "20", "100"]
+  - id: rotacion_llaves
+    si: {credenciales_ci: access_keys}
+    pregunta: ¿Cada cuántos días como máximo se rota una access key de despliegue?
+    ayuda: Más corto limita el daño de una llave filtrada; cada rotación exige actualizar el secreto del CI.
+    tipo: numero
+    por_defecto: "90"
+    ejemplos: ["30", "90"]
+  - id: vida_config
+    si: {config_dinamica: si}
+    pregunta: ¿Cada cuántos segundos se relee la configuración que vive en la base?
+    tipo: numero
+    por_defecto: "300"
+    ejemplos: ["60", "300"]
+
+constantes:
+  - id: runtime_go
+    valor: provided.al2023 con el binario llamado bootstrap
+    por_que: el runtime go1.x fue retirado por AWS; provided.al2023 es el vigente, más chico y con soporte largo
+  - id: runtime_node
+    valor: el runtime nodejs de la versión LTS vigente (nodejs22.x o posterior)
+    por_que: AWS retira cada runtime de Node al terminar su LTS; uno vencido deja de recibir parches y luego no se puede actualizar
+  - id: build_go
+    valor: "CGO_ENABLED=0 GOOS=linux, -tags lambda.norpc, -trimpath, -ldflags \"-s -w -X main.version=<commit>\""
+    por_que: binario estático que corre en provided.al2023, sin el modo RPC heredado de go1.x, sin rutas locales ni símbolos, con su versión dentro
+  - id: build_node
+    valor: "esbuild --bundle --platform=node --target=<versión del runtime> --format=esm --minify --sourcemap, con APP_VERSION=<commit>"
+    por_que: un solo archivo chico con solo lo que se importa (sin devDependencies ni node_modules enteros), arranque en frío corto y trazas legibles
+  - id: corte_http_api
+    valor: 30 s
+    por_que: es el máximo de integración de HTTP API; pasado ese tiempo el gateway responde 503/504 aunque la función siga
+  - id: corte_rest_api
+    valor: 29 s
+    por_que: es el corte por defecto de integración de REST API; subirlo exige pedir cuota y no aplica a todos los tipos
+  - id: carga_lambda
+    valor: 6 MB por petición y por respuesta
+    por_que: es el límite de una invocación síncrona de Lambda; manda sobre los 10 MB del gateway, y en base64 cabe menos
+  - id: tamano_variables
+    valor: 4 KB en total
+    por_que: es el límite de Lambda para todas las variables de entorno juntas; pasado, el despliegue falla
+  - id: init_max
+    valor: 10 s
+    por_que: es lo que Lambda da a la fase init; pasado, se reinicia el entorno y el arranque se cobra en la invocación
+  - id: tmp_por_defecto
+    valor: 512 MB en /tmp
+    por_que: es el almacenamiento efímero por defecto de un entorno (configurable hasta 10 GB); no se comparte ni persiste
+  - id: paquete_zip
+    valor: 50 MB comprimido y 250 MB descomprimido
+    por_que: son los límites del paquete zip (con capas); sobre eso hace falta una imagen de contenedor (hasta 10 GB)
+  - id: margen_corte
+    valor: 1 s
+    por_que: deja tiempo para escribir la respuesta propia y sus cabeceras antes de que el gateway corte la conexión
+  - id: espera_smoke
+    valor: 60 s con reintentos cada 5 s
+    por_que: alcanza para que la actualización de la función termine de propagarse sin dejar pasar un despliegue roto
+
+preguntas:
+  - id: lenguaje
+    pregunta: ¿En qué lenguaje está la API?
+    ayuda: >
+      Las reglas del blueprint valen igual en los dos; cambian el runtime, el build, el adaptador y las trampas
+      propias de cada uno. Go arranca más rápido en frío y usa menos memoria; Node comparte lenguaje con el frontend.
+    por_defecto: go
+    opciones:
+      - valor: go
+        descripcion: Go, binario bootstrap en {{runtime_go}}.
+        decisiones:
+          - "Runtime {{runtime_go}}; build con {{build_go}}"
+          - "Router net/http (ServeMux estándar o chi) envuelto por aws-lambda-go-api-proxy (httpadapter) y lambda.Start"
+          - "En local el mismo router con http.ListenAndServe; en pruebas con httptest"
+          - "Plazos con un contexto con timeout derivado del de la petición; tope de cuerpo con http.MaxBytesReader"
+        invariantes:
+          - "Un error del arranque termina el proceso (log.Fatal u os.Exit(1)); nunca un return que deja el adaptador nulo"
+          - "Ninguna goroutine lanzada por un handler sigue después de responder"
+          - "Ninguna consulta ni llamada externa usa un contexto raíz sin plazo: todas derivan del de la petición"
+          - "La versión de Go sale de go.mod (go-version-file) en todos los jobs del CI"
+        conformidad:
+          - id: BEM-G01
+            titulo: Sin goroutines tras responder
+            cuando: se revisan los handlers (revisión o linter)
+            entonces: ninguno lanza una goroutine que sigue trabajando después de escribir la respuesta
+      - valor: node
+        descripcion: Node, módulo ESM con su handler exportado en {{runtime_node}}.
+        decisiones:
+          - "Runtime {{runtime_node}}; build con {{build_node}}"
+          - "Router HTTP del ecosistema (Express, Fastify o Hono) envuelto por su adaptador (serverless-http, @fastify/aws-lambda o hono/aws-lambda)"
+          - "Configuración y clientes creados en el nivel superior del módulo (await de nivel superior), no dentro del handler"
+          - "En local, el mismo router con su servidor (app.listen) o serverless-offline; en pruebas, el handler con eventos sintéticos"
+          - "Plazos con AbortSignal.timeout en fetch y statement_timeout o un timeout del cliente en la base"
+          - "AWS SDK v3 por cliente (@aws-sdk/client-s3, …) incluido en el bundle con versión fijada, no el que trae el runtime"
+          - "NODE_OPTIONS=--enable-source-maps para que las trazas apunten al código fuente"
+        invariantes:
+          - "Todo handler es async y espera (await) todo lo que lanza: ninguna promesa queda sin await al responder"
+          - "Un error en el nivel superior del módulo hace fallar el arranque; nunca se captura para seguir con la mitad de la configuración"
+          - "El paquete es el bundle: sin node_modules enteros ni devDependencies; los módulos nativos se compilan para la arquitectura de la función"
+          - "La versión de Node del CI sale del proyecto (.nvmrc o engines) y coincide con el runtime"
+          - "Un runtime nodejs anunciado para retiro se actualiza antes de su fecha; el CI falla si el manifiesto declara uno vencido"
+        conformidad:
+          - id: BEM-N01
+            titulo: Sin promesas sueltas
+            cuando: el linter revisa los handlers (no-floating-promises o equivalente)
+            entonces: no hay promesas sin await ni sin manejo de error
+          - id: BEM-N02
+            titulo: Bundle sin dependencias de desarrollo
+            cuando: se lista el paquete construido por el CI
+            entonces: trae el bundle y su sourcemap, no node_modules ni dependencias de desarrollo, y pesa menos que {{paquete_zip}}
+          - id: BEM-N03
+            titulo: Runtime vigente
+            cuando: el CI revisa el runtime declarado en el manifiesto
+            entonces: es {{runtime_node}}; uno retirado o con retiro anunciado hace fallar el job
+
+  - id: gateway
+    pregunta: ¿Qué recibe las peticiones HTTP frente a la función?
+    ayuda: >
+      HTTP API cubre casi todo y es más barato. REST API hace falta para planes de uso, API keys del gateway, WAF en
+      el gateway o validación de peticiones. Una Function URL no tiene gateway: sirve para webhooks o para respuestas
+      largas o en streaming.
+    por_defecto: http_api
+    opciones:
+      - valor: http_api
+        descripcion: API Gateway HTTP API, payload 2.0, con una ruta $default que manda todo al router.
+        decisiones:
+          - "Una sola ruta $default (en Serverless Framework, el evento httpApi: '*'); el ruteo lo hace el router de la aplicación"
+        invariantes:
+          - "La raíz «/» también llega al router: /{proxy+} no la incluye, por eso se usa $default o se declaran las dos rutas"
+          - "El timeout de la función es como máximo {{corte_http_api}} menos {{margen_corte}}"
+          - "Con payload 2.0 las cookies llegan aparte y el adaptador las reconstruye; ningún handler lee el evento crudo"
+        conformidad:
+          - id: BEM-H01
+            titulo: La raíz llega al router
+            cuando: se llama GET / y GET /health a la API desplegada
+            entonces: ambas las responde el router de la aplicación, no un 404 del gateway
+      - valor: rest_api
+        descripcion: API Gateway REST API, payload 1.0, con un recurso proxy {proxy+} y el método ANY en la raíz.
+        depende_de: ["Necesidad concreta de planes de uso, API keys del gateway, WAF o validación en el gateway"]
+        decisiones:
+          - "Gateway Responses DEFAULT_4XX y DEFAULT_5XX con las cabeceras CORS, para que los errores del gateway las traigan"
+        invariantes:
+          - "El timeout de la función es como máximo {{corte_rest_api}} menos {{margen_corte}}"
+          - "Los tipos binarios están declarados en binaryMediaTypes; sin eso un PDF llega corrupto"
+        conformidad:
+          - id: BEM-R01
+            titulo: Error del gateway con CORS
+            cuando: el navegador recibe un 403 o un 504 generado por el gateway
+            entonces: la respuesta trae Access-Control-Allow-Origin y el navegador muestra el error real, no un error CORS
+      - valor: function_url
+        descripcion: Function URL de Lambda, sin gateway (webhooks, respuestas largas o en streaming).
+        depende_de: ["Autenticación propia en la aplicación o AuthType AWS_IAM: la URL es pública"]
+        invariantes:
+          - "Sin gateway no hay límite de peticiones por segundo: la concurrencia reservada es el único tope"
+          - "CORS se configura en un solo lado: en la Function URL o en la aplicación, nunca en los dos"
+        conformidad:
+          - id: BEM-U01
+            titulo: Tope de la Function URL
+            cuando: llegan más peticiones simultáneas que la concurrencia reservada
+            entonces: las que sobran responden 429 y las cabeceras CORS de cada respuesta aparecen una sola vez
+
+  - id: empaquetado
+    pregunta: ¿Cómo se empaqueta la función?
+    ayuda: >
+      El zip es lo normal: un binario o un bundle chico y arranques en frío cortos. La imagen de contenedor hace falta
+      si el código ejecuta programas nativos (p. ej. poppler, ImageMagick, Chrome) o si el paquete pasa {{paquete_zip}}.
+    por_defecto: zip
+    opciones:
+      - valor: zip
+        descripcion: Zip con el binario o el bundle y solo los archivos que el código lee en ejecución.
+        invariantes:
+          - "El paquete trae el código y una lista explícita de archivos de datos; nada de carpetas enteras «por si acaso»"
+          - "Ningún handler ejecuta un programa del sistema que el runtime no trae; si hace falta, se cambia a contenedor o a una capa"
+        conformidad:
+          - id: BEM-Z01
+            titulo: El paquete trae solo lo que se usa
+            cuando: se lista el contenido del zip construido por el CI
+            entonces: está el código y solo los archivos de datos declarados, y pesa menos que {{paquete_zip}}
+      - valor: contenedor
+        descripcion: Imagen de contenedor en ECR basada en la imagen base de Lambda del runtime, con las dependencias nativas.
+        depende_de: ["Un repositorio ECR por ambiente con política de ciclo de vida"]
+        decisiones:
+          - "La imagen se etiqueta con el commit; la función apunta a la etiqueta del commit, nunca a latest"
+        invariantes:
+          - "Las dependencias nativas tienen versión fijada en el Dockerfile"
+        conformidad:
+          - id: BEM-Z02
+            titulo: Imagen por commit
+            cuando: se construye dos veces la imagen del mismo commit y se despliega
+            entonces: las dependencias nativas tienen la misma versión en las dos y la función apunta a la etiqueta del commit, no a latest
+
+  - id: arquitectura
+    pregunta: ¿Para qué arquitectura se construye la función?
+    ayuda: >
+      arm64 (Graviton) cuesta menos por GB-s; Go la compila sin cambios y Node la corre igual si sus módulos nativos
+      se compilan para arm64. x86_64 solo si una dependencia nativa lo exige.
+    por_defecto: arm64
+    opciones:
+      - valor: arm64
+        descripcion: architecture arm64 en el manifiesto (GOARCH=arm64 en Go; módulos nativos para linux-arm64 en Node).
+        invariantes: ["La arquitectura del build y la del manifiesto coinciden; un desajuste da «exec format error» o un módulo nativo que no carga en cada invocación"]
+        conformidad:
+          - id: BEM-A01
+            titulo: Build y manifiesto en arm64
+            cuando: el CI construye y despliega
+            entonces: el paquete es para linux-arm64, el manifiesto declara arm64 y la primera invocación responde sin error de formato ni de módulo nativo
+      - valor: x86_64
+        descripcion: architecture x86_64 en el manifiesto (GOARCH=amd64 en Go; módulos nativos para linux-x64 en Node).
+        invariantes: ["La arquitectura del build y la del manifiesto coinciden; un desajuste da «exec format error» o un módulo nativo que no carga en cada invocación"]
+        conformidad:
+          - id: BEM-A02
+            titulo: Build y manifiesto en x86_64
+            cuando: el CI construye y despliega
+            entonces: el paquete es para linux-x64, el manifiesto declara x86_64 y la primera invocación responde sin error de formato ni de módulo nativo
+
+  - id: infraestructura
+    pregunta: ¿Con qué herramienta se declara la infraestructura?
+    ayuda: >
+      Todas sirven si el manifiesto es la fuente única. Serverless Framework es el más corto para una función con su
+      gateway; SAM es de AWS y sin licencias; Terraform o CDK convienen si el resto de la infraestructura ya vive ahí.
+    por_defecto: serverless
+    opciones:
+      - valor: serverless
+        descripcion: Serverless Framework (serverless.yml), con la versión fijada en el CI.
+        depende_de:
+          - "La versión fijada (npx serverless@3 o @4, o en devDependencies con lockfile): la v3 ya no recibe mantenimiento del fabricante y la v4 exige cuenta y, según el tamaño de la organización, licencia"
+        decisiones:
+          - "Valores por ambiente en custom.<clave>.<stage> (buckets, esquema, orígenes, dominio), elegidos con ${self:custom.<clave>.${sls:stage}}"
+          - "package.individually con patterns: '!**' y luego solo el código y los datos declarados (en Node, el bundle de esbuild)"
+          - "serverless-offline solo como ayuda de desarrollo local; nunca reemplaza las pruebas del CI"
+        invariantes:
+          - "El bloque environment del manifiesto reemplaza todas las variables de la función en cada despliegue: toda variable necesaria está declarada ahí"
+          - "Una variable tomada del CI con ${env:VAR} no lleva valor por defecto vacío (${env:VAR, ''}) si es obligatoria: si falta, el despliegue falla"
+          - "El pipeline nunca ejecuta serverless remove: borra el stack, corta la API y puede borrar recursos con datos"
+          - "Serverless nunca se instala sin versión (npm install -g serverless): la versión es la fijada en el proyecto"
+        conformidad:
+          - id: BEM-S01
+            titulo: Obligatoria ausente no se despliega
+            dado: una variable obligatoria que el CI no pasa
+            cuando: se despliega
+            entonces: el despliegue falla antes de tocar la función; nunca sube la variable vacía
+          - id: BEM-S02
+            titulo: Sin remove ni versión flotante
+            cuando: se revisa el pipeline de despliegue
+            entonces: no ejecuta serverless remove y usa la versión de Serverless fijada en el proyecto
+      - valor: sam
+        descripcion: AWS SAM (template.yaml) con samconfig.toml por ambiente.
+        decisiones:
+          - "Parámetros por ambiente en samconfig.toml; los secretos se pasan como parámetros NoEcho o se leen de SSM"
+        invariantes:
+          - "Las variables de la función se declaran todas en Environment.Variables; una cambiada en la consola se pierde en el próximo despliegue"
+          - "El pipeline nunca borra el stack (sam delete) para volver a desplegarlo"
+        conformidad:
+          - id: BEM-S03
+            titulo: SAM sin borrar el stack
+            cuando: se revisa el pipeline y la plantilla
+            entonces: el pipeline no ejecuta sam delete y todas las variables que lee el código están en Environment.Variables
+      - valor: terraform
+        descripcion: Terraform con estado remoto (S3 + bloqueo) por ambiente.
+        depende_de: ["Backend de estado remoto con bloqueo"]
+        invariantes:
+          - "El paquete lo construye el CI y Terraform lo sube por hash; un plan sin cambios de código no redespliega"
+          - "Los recursos con datos (buckets, tablas, bases) tienen prevent_destroy"
+        conformidad:
+          - id: BEM-S04
+            titulo: Recursos con datos protegidos
+            cuando: un plan propone destruir un bucket, una tabla o una base
+            entonces: el plan falla por prevent_destroy y no se aplica
+      - valor: cdk
+        descripcion: AWS CDK con un stack por ambiente.
+        invariantes:
+          - "cdk diff corre en el CI antes de cdk deploy y su salida queda en el log del job"
+          - "Los recursos con datos tienen removalPolicy RETAIN"
+        conformidad:
+          - id: BEM-S05
+            titulo: Diff antes de desplegar
+            cuando: el CI despliega un stack
+            entonces: el log del job trae el cdk diff antes del deploy y los recursos con datos tienen RETAIN
+
+  - id: ci
+    pregunta: ¿Qué CI despliega?
+    ayuda: Las reglas son las mismas; cambia cómo se escriben la concurrencia, las aprobaciones y las credenciales.
+    por_defecto: github_actions
+    opciones:
+      - valor: github_actions
+        descripcion: GitHub Actions, con un environment por ambiente.
+        decisiones:
+          - "concurrency por ambiente con cancel-in-progress: false; environment de prod con revisores obligatorios"
+      - valor: azure_pipelines
+        descripcion: Azure Pipelines, con un environment por ambiente y un variable group por ambiente.
+        decisiones:
+          - "Un stage de despliegue por ambiente con su environment (aprobaciones y lock exclusivo) y su variable group, con los secretos marcados como secretos"
+        invariantes:
+          - "El lock exclusivo del environment impide dos despliegues del mismo ambiente a la vez"
+          - "Los secretos del variable group llegan al paso de despliegue por env, nunca en la línea de comando"
+        conformidad:
+          - id: BEM-P01
+            titulo: Un despliegue a la vez en Azure
+            cuando: se lanzan dos corridas al mismo environment
+            entonces: la segunda espera el lock exclusivo y ningún secreto aparece en la línea de comando del log
+
+  - id: credenciales_ci
+    pregunta: ¿Cómo se autentica el CI contra AWS para desplegar?
+    ayuda: OIDC no deja llaves que rotar ni filtrar; las access keys exigen rotación y un dueño.
+    por_defecto: oidc
+    opciones:
+      - valor: oidc
+        descripcion: >
+          Federación OIDC con un rol de despliegue por ambiente (GitHub Actions: aws-actions/configure-aws-credentials
+          con role-to-assume; Azure Pipelines: la conexión de servicio de AWS con OIDC).
+        depende_de: ["Un proveedor OIDC en la cuenta y un rol cuya política de confianza limita repositorio, rama o environment"]
+        invariantes:
+          - "La confianza del rol limita el sujeto a este repositorio y a la rama o environment del ambiente; un fork o una rama cualquiera no despliega"
+          - "El job pide solo los permisos que usa (en GitHub Actions: id-token: write y contents: read)"
+        conformidad:
+          - id: BEM-O01
+            titulo: Una rama cualquiera no despliega a producción
+            cuando: un pipeline de otra rama o de un pull request intenta asumir el rol de producción
+            entonces: AWS rechaza el AssumeRoleWithWebIdentity
+      - valor: access_keys
+        descripcion: Access keys de un usuario IAM de despliegue guardadas como secretos del CI.
+        depende_de: ["Un dueño y una fecha de rotación para cada llave"]
+        invariantes:
+          - "La llave de despliegue no es la misma que usa la función en ejecución: nunca se pasa a la función como variable"
+          - "La llave rota al menos cada {{rotacion_llaves}} días y antes de desactivar la vieja se confirma que ningún consumidor la usa"
+        conformidad:
+          - id: BEM-O02
+            titulo: La llave de despliegue no llega a la función
+            cuando: se listan las variables de la función desplegada y la edad de la llave
+            entonces: ninguna variable es la llave de despliegue y la llave tiene menos de {{rotacion_llaves}} días
+
+  - id: secretos
+    pregunta: ¿De dónde lee la función sus secretos?
+    ayuda: >
+      Variables de entorno desde el CI es lo más simple y funciona bien con pocos secretos; SSM o Secrets Manager
+      permiten rotar sin redesplegar y no dejan el valor visible en la consola de Lambda.
+    por_defecto: variables_ci
+    opciones:
+      - valor: variables_ci
+        descripcion: Secretos del CI por ambiente pasados como variables de entorno declaradas en el manifiesto.
+        invariantes:
+          - "Cada secreto vive en el CI por ambiente; el pipeline lo pasa al paso de despliegue solo por env, nunca en un argumento ni en un echo"
+          - "Las variables de entorno juntas pesan menos de {{tamano_variables}}"
+        conformidad:
+          - id: BEM-E01
+            titulo: Secretos sin eco
+            cuando: se revisa el log del job de despliegue y la configuración de la función
+            entonces: ningún secreto aparece en el log y las variables de la función pesan menos de {{tamano_variables}}
+      - valor: ssm
+        descripcion: SSM Parameter Store (SecureString), leído una vez en el arranque en frío.
+        depende_de: ["Permiso ssm:GetParameters y kms:Decrypt del rol de ejecución, solo para la ruta del ambiente"]
+        invariantes:
+          - "La función recibe por variable solo la ruta del parámetro, nunca el valor"
+        conformidad:
+          - id: BEM-E02
+            titulo: Solo la ruta del parámetro
+            cuando: se listan las variables de la función
+            entonces: trae la ruta del parámetro y no su valor; la función lo lee al arrancar con su rol de ejecución
+      - valor: secrets_manager
+        descripcion: AWS Secrets Manager (o la extensión de caché de parámetros y secretos), leído en el arranque y con rotación.
+        depende_de: ["Permiso secretsmanager:GetSecretValue del rol de ejecución, solo para los secretos del ambiente"]
+        invariantes:
+          - "La función recibe por variable solo el ARN o el nombre del secreto, nunca el valor"
+          - "Tras una rotación, los entornos vivos toman el valor nuevo sin redesplegar (caché con vida corta o error de autenticación que fuerza releer)"
+        conformidad:
+          - id: BEM-E03
+            titulo: Rotación sin redesplegar
+            dado: un secreto rotado en Secrets Manager
+            cuando: llegan peticiones a entornos que ya estaban vivos
+            entonces: responden con el valor nuevo dentro de la vida de la caché, sin redesplegar
+
+  - id: cors
+    pregunta: ¿Qué orígenes pueden llamar a la API desde el navegador?
+    ayuda: >
+      Con cookies o credenciales del navegador, solo una lista explícita es válida. El comodín sirve para una API
+      pública o que se autentica solo con un token en la cabecera Authorization y sin cookies.
+    por_defecto: lista
+    opciones:
+      - valor: lista
+        descripcion: Lista explícita de orígenes por ambiente, en el manifiesto; el resto no recibe cabeceras CORS.
+        decisiones:
+          - "La lista llega a la función como una variable (orígenes separados por coma) por ambiente"
+        invariantes:
+          - "Solo un Origin que está en la lista recibe Access-Control-Allow-Origin con ese mismo origen, y la respuesta lleva Vary: Origin"
+          - "Nunca se refleja un Origin que no está en la lista; localhost solo en la lista de los ambientes que no son producción"
+        conformidad:
+          - id: BEM-K01
+            titulo: Origen fuera de la lista
+            cuando: llega una petición con Origin de un dominio que no está en la lista
+            entonces: la respuesta no trae Access-Control-Allow-Origin ni Access-Control-Allow-Credentials
+          - id: BEM-K02
+            titulo: Origen de la lista
+            cuando: llega una petición con un Origin de la lista
+            entonces: "Access-Control-Allow-Origin es ese origen exacto y la respuesta trae Vary: Origin"
+      - valor: comodin
+        descripcion: Access-Control-Allow-Origin * para todos, sin credenciales del navegador.
+        depende_de: ["La autenticación va solo en la cabecera Authorization; la API no usa cookies"]
+        invariantes:
+          - "Con comodín la respuesta nunca trae Access-Control-Allow-Credentials: true (el navegador la rechaza) ni refleja el Origin"
+          - "Los métodos y cabeceras permitidos son una lista explícita, no *"
+        conformidad:
+          - id: BEM-K03
+            titulo: Comodín sin credenciales
+            cuando: llega una petición con cualquier Origin
+            entonces: Access-Control-Allow-Origin es * y no hay Access-Control-Allow-Credentials
+
+  - id: capa_cors
+    pregunta: ¿Quién responde las cabeceras CORS?
+    ayuda: >
+      Si el gateway tiene CORS configurado, responde él los preflight e ignora las cabeceras de la aplicación; si las
+      dos capas lo hacen, aparecen cabeceras duplicadas o contradictorias y el navegador rechaza la respuesta.
+    por_defecto: aplicacion
+    opciones:
+      - valor: aplicacion
+        descripcion: Un middleware de la aplicación, el primero del router, responde el preflight y pone las cabeceras.
+        invariantes:
+          - "El gateway no tiene CORS configurado"
+          - "El middleware CORS va antes que la autenticación, el logger y el manejo de errores: un 401, un 404 o un 500 también traen las cabeceras"
+          - "El preflight OPTIONS responde 204 sin pedir autenticación"
+        conformidad:
+          - id: BEM-K04
+            titulo: CORS en una sola capa
+            cuando: se revisa el manifiesto y una respuesta de error de la API
+            entonces: el gateway no tiene CORS configurado y cada cabecera Access-Control-* aparece una sola vez
+      - valor: gateway
+        descripcion: La configuración CORS del gateway (o de la Function URL); la aplicación no pone cabeceras CORS.
+        invariantes:
+          - "La aplicación no escribe ninguna cabecera Access-Control-*"
+          - "La configuración CORS del gateway vive en el manifiesto, con la misma política {{cors}}"
+        conformidad:
+          - id: BEM-K05
+            titulo: Solo el gateway pone CORS
+            cuando: la aplicación responde cualquier ruta
+            entonces: no escribe cabeceras Access-Control-* y las del gateway siguen la política {{cors}}
+
+  - id: red
+    pregunta: ¿La función corre dentro de una VPC?
+    ayuda: >
+      Hace falta una VPC si la base u otro servicio solo es accesible por red privada. Dentro de la VPC la función
+      pierde la salida a internet y a los servicios de AWS salvo que se le dé un camino.
+    por_defecto: sin_vpc
+    opciones:
+      - valor: sin_vpc
+        descripcion: La función sale directo a internet; la base se alcanza por su endpoint público con TLS.
+        invariantes:
+          - "La conexión a la base exige TLS (sslmode=require o superior)"
+        conformidad:
+          - id: BEM-V02
+            titulo: TLS a la base
+            cuando: la función intenta conectarse a una base que no ofrece TLS
+            entonces: la conexión falla; nunca cae a una conexión sin cifrar
+      - valor: vpc
+        descripcion: La función en subredes privadas, con grupos de seguridad propios.
+        depende_de: ["Subredes privadas en al menos dos zonas y un grupo de seguridad propio de la función"]
+        decisiones:
+          - "Salida a internet por NAT y a los servicios de AWS por VPC endpoints (S3 gateway, SQS, SSM, Secrets Manager)"
+        invariantes:
+          - "El grupo de seguridad de la base acepta solo el grupo de seguridad de la función, no rangos de IP"
+          - "Toda llamada a internet o a un servicio de AWS tiene su camino declarado (NAT o endpoint); sin él, cuelga hasta el timeout"
+        conformidad:
+          - id: BEM-V01
+            titulo: Camino de salida
+            cuando: la función en la VPC llama a S3, a la cola y a un tercero de internet
+            entonces: las tres llamadas responden antes del presupuesto; ninguna cuelga hasta el timeout
+
+  - id: base_datos
+    pregunta: ¿A qué base de datos se conecta la función?
+    ayuda: >
+      Con PostgreSQL, cada entorno de ejecución abre sus propias conexiones: un pico de 100 entornos son 100 clientes.
+      Un pooler en modo transacción las reparte mejor; el modo sesión permite estado por conexión pero gasta una
+      conexión por entorno.
+    por_defecto: postgres_transaccion
+    opciones:
+      - valor: postgres_transaccion
+        descripcion: PostgreSQL detrás de un pooler en modo transacción (PgBouncer, Supavisor) o de RDS Proxy.
+        decisiones:
+          - "Go: pgx en modo exec o simple protocol (default_query_exec_mode=exec, statement_cache_capacity=0)"
+          - "Node: node-postgres (pg) sin la opción name en las consultas, que crea sentencias preparadas con nombre"
+        invariantes:
+          - "Sin sentencias preparadas con nombre ni caché de sentencias: el pooler entrega otra conexión del servidor en la siguiente transacción"
+          - "Sin estado de sesión: nada de SET, LISTEN ni tablas temporales fuera de una transacción; el esquema va calificado o con SET LOCAL dentro de la transacción"
+          - "Nunca se fija un parámetro de sesión por PGOPTIONS ni por el parámetro options de la conexión: el pooler lo rechaza o lo ignora"
+          - "El pool del entorno tiene como máximo {{conexiones}} conexiones"
+        conformidad:
+          - id: BEM-D01
+            titulo: Sin sentencias preparadas con nombre
+            cuando: la misma consulta corre 100 veces seguidas por el pooler en modo transacción, repartida en varias conexiones
+            entonces: ninguna falla con «prepared statement already exists» ni «does not exist»
+      - valor: postgres_sesion
+        descripcion: PostgreSQL directo o con un pooler en modo sesión.
+        depende_de: ["Concurrencia reservada × conexiones por entorno ≤ conexiones disponibles del servidor"]
+        invariantes:
+          - "La concurrencia reservada de la función por {{conexiones}} no supera las conexiones que el servidor reserva para la API"
+          - "Las conexiones ociosas no se guardan o tienen vida corta, para no acumular conexiones de entornos congelados"
+        conformidad:
+          - id: BEM-D02
+            titulo: Conexiones bajo el tope
+            cuando: la función llega a su concurrencia reservada
+            entonces: las conexiones abiertas a la base no superan la concurrencia reservada por {{conexiones}}
+      - valor: dynamodb
+        descripcion: DynamoDB con el SDK de AWS del lenguaje.
+        invariantes:
+          - "El rol de ejecución tiene permisos solo sobre las tablas del ambiente y sus índices"
+        conformidad:
+          - id: BEM-D03
+            titulo: Tablas del ambiente
+            cuando: la función de un ambiente intenta leer una tabla de otro
+            entonces: AWS niega el acceso
+      - valor: ninguna
+        descripcion: La función no usa base de datos.
+
+  - id: trabajo_largo
+    pregunta: ¿Qué pasa con el trabajo que no cabe en la respuesta?
+    ayuda: >
+      Cuando el handler responde, Lambda congela el entorno: lo que quedó corriendo (una goroutine, una promesa sin
+      await) puede quedar a medias para siempre. Lo que tarde más que {{presupuesto}} s o deba seguir después de
+      responder va a otro lado.
+    por_defecto: cola
+    opciones:
+      - valor: cola
+        descripcion: La API encola un mensaje en SQS y responde 202; una función consumidora o un worker lo procesa.
+        depende_de: ["Una cola por ambiente con su cola de mensajes muertos (DLQ)"]
+        invariantes:
+          - "El mensaje lleva un id de idempotencia y el consumidor tolera recibirlo dos veces"
+          - "Un mensaje que falla tras sus reintentos termina en la DLQ y genera una alarma"
+        conformidad:
+          - id: BEM-Q01
+            titulo: El trabajo largo no corre en la respuesta
+            cuando: un cliente pide una operación que tarda más que el presupuesto
+            entonces: la API responde 202 con un id para consultar el estado y el trabajo lo hace el consumidor de la cola
+      - valor: servicio_aparte
+        descripcion: Un servicio de larga vida (contenedor o VM) que la API llama por HTTP con una credencial de servicio.
+        invariantes:
+          - "La llamada de la API al servicio tiene un plazo menor que el presupuesto y la API responde aunque el servicio no conteste"
+          - "La credencial de servicio se compara en tiempo constante y una clave vacía nunca autoriza"
+        conformidad:
+          - id: BEM-Q02
+            titulo: El servicio aparte no contesta
+            dado: el servicio aparte caído o lento
+            cuando: la API lo llama
+            entonces: la API responde un error propio antes del presupuesto, con sus cabeceras
+      - valor: no_hay
+        descripcion: Todo cabe dentro de la respuesta.
+
+  - id: frontend
+    pregunta: ¿La API sirve a un frontend estático desplegado junto a ella?
+    por_defecto: s3_cloudfront
+    opciones:
+      - valor: s3_cloudfront
+        descripcion: SPA construida en el CI, en un bucket S3 privado, servida por CloudFront con OAC.
+        decisiones:
+          - "La URL de la API llega al frontend como variable pública de build (p. ej. VITE_API_URL) por ambiente"
+          - "La configuración de CloudFront (OAC, páginas de error, política de caché y de cabeceras de seguridad) vive en el manifiesto, no solo en la consola"
+        invariantes:
+          - "El bucket del frontend es solo del frontend: el sync con --delete nunca apunta a un bucket que comparte con otro uso, y su nombre sale de una variable propia"
+          - "Las variables de build del frontend son públicas: ningún secreto va en ellas ni en archivos .env del frontend"
+          - "index.html se sube con Cache-Control no-cache y los archivos con hash con max-age de un año e immutable"
+          - "Una ruta profunda de la SPA (p. ej. /panel/123) devuelve index.html con 200"
+          - "Tras subir, se invalida al menos /index.html en CloudFront"
+          - "Cabeceras de seguridad (HSTS, X-Content-Type-Options, X-Frame-Options o frame-ancestors, Referrer-Policy) en una política de cabeceras de respuesta de CloudFront"
+        conformidad:
+          - id: BEM-F01
+            titulo: Ruta profunda de la SPA
+            cuando: se abre directo https://<dominio>/una/ruta/profunda
+            entonces: responde 200 con el index.html de la versión recién desplegada
+          - id: BEM-F02
+            titulo: index.html no queda en caché
+            cuando: se despliega una versión nueva del frontend y se recarga la página
+            entonces: el navegador carga la versión nueva sin borrar caché
+          - id: BEM-F03
+            titulo: Sync aislado
+            cuando: se revisa el comando de sync con --delete del pipeline del frontend
+            entonces: su destino es el bucket del frontend del ambiente, que no contiene nada más, y el paso falla si la variable está vacía
+      - valor: ninguno
+        descripcion: Solo la API.
+
+  - id: ambientes
+    pregunta: ¿Qué ambientes tiene la API?
+    por_defecto: qa_y_prod
+    opciones:
+      - valor: qa_y_prod
+        descripcion: qa se despliega al empujar a su rama; prod al integrar en la rama principal, con aprobación del environment.
+        invariantes:
+          - "Cada ambiente tiene su función, su gateway, sus buckets, su esquema o base, sus colas y sus secretos; ninguno escribe en los recursos del otro"
+          - "El despliegue a prod usa un environment del CI con revisores obligatorios o protección de rama"
+        conformidad:
+          - id: BEM-M01
+            titulo: Ambientes aislados
+            cuando: la función de qa intenta escribir en un bucket, esquema o cola de prod
+            entonces: falla por permisos; y un despliegue a prod espera la aprobación del environment
+      - valor: solo_prod
+        descripcion: Un solo ambiente; se prueba en local y en el CI antes de desplegar.
+        invariantes:
+          - "Los recursos llevan el ambiente en su nombre igual, para poder sumar otro sin renombrar"
+        conformidad:
+          - id: BEM-M02
+            titulo: Nombre con ambiente
+            cuando: se listan los recursos del manifiesto
+            entonces: cada nombre de función, bucket, cola y esquema lleva el ambiente
+
+  - id: vuelta_atras
+    pregunta: ¿Cómo se vuelve a la versión anterior si un despliegue sale mal?
+    por_defecto: redesplegar
+    opciones:
+      - valor: redesplegar
+        descripcion: El pipeline de despliegue acepta un ref y se lanza a mano con el último commit bueno.
+        invariantes:
+          - "El procedimiento está escrito en el repositorio y se probó al menos una vez"
+        conformidad:
+          - id: BEM-B01
+            titulo: Vuelta atrás por ref
+            cuando: se lanza el pipeline a mano con el ref del último commit bueno
+            entonces: pasa las pruebas, despliega y el smoke test confirma ese commit en /health
+      - valor: alias
+        descripcion: Cada despliegue publica una versión de la función; el gateway apunta a un alias que se mueve a la versión anterior en un paso.
+        invariantes:
+          - "El alias de producción apunta siempre a una versión publicada, nunca a $LATEST"
+          - "Se conservan al menos las últimas 3 versiones publicadas"
+        conformidad:
+          - id: BEM-B02
+            titulo: Alias a una versión publicada
+            cuando: se mueve el alias de producción a la versión anterior
+            entonces: /health informa el commit anterior sin redesplegar, y el alias nunca apuntó a $LATEST
+
+  - id: config_dinamica
+    pregunta: ¿Hay configuración que se cambia en caliente desde la base de datos o un panel?
+    ayuda: >
+      Lo que se lee solo en el arranque en frío queda fijo mientras viva el entorno, que pueden ser horas: un cambio
+      en el panel no se ve hasta que Lambda recicla el entorno.
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Toda la configuración llega por variables de entorno; un cambio se aplica redesplegando.
+      - valor: si
+        descripcion: Parte de la configuración se lee de la base con una caché de vida corta.
+        invariantes:
+          - "La configuración leída de la base se relee como mucho cada {{vida_config}} s; un cambio se ve en todos los entornos en ese plazo"
+          - "Si la relectura falla, se sigue con el último valor bueno y se registra el error"
+        conformidad:
+          - id: BEM-Y01
+            titulo: Cambio en caliente
+            dado: un cambio de configuración guardado en la base
+            cuando: pasan {{vida_config}} s
+            entonces: todos los entornos aplican el cambio; si la base no responde, siguen con el último valor bueno y lo registran
+
+pasos:
+  - id: entrada
+    accion: >
+      Escribir el punto de entrada: en el arranque carga la configuración, crea el pool y los clientes una sola vez,
+      arma el router de la aplicación y lo pasa al adaptador del gateway; cualquier error ahí hace fallar el arranque
+    produce: una función cuyo arranque falla visible (Runtime.ExitError o Runtime.ImportModuleError) y nunca queda a medias
+    verifica: [BEM-C01, BEM-C02, BEM-C03]
+  - id: configuracion
+    accion: >
+      Escribir un único cargador de configuración que lee variables de entorno, exige los secretos y las obligatorias,
+      valida formatos y devuelve un error que nombra cada variable que falta (sin su valor)
+    produce: una configuración que no arranca a medias ni con secretos por defecto
+    verifica: [BEM-C04, BEM-C05, BEM-C06, BEM-E02, BEM-E03, BEM-Y01]
+  - id: manifiesto
+    accion: >
+      Declarar en el manifiesto, en {{region}}, la función (runtime, {{memoria}} MB, timeout {{timeout}} s,
+      arquitectura, concurrencia {{concurrencia}}), la ruta del gateway, cada variable, el rol de ejecución mínimo,
+      logs por {{retencion_logs}} días, la red y los recursos por ambiente
+    produce: una infraestructura reproducible donde nada depende de la consola
+    verifica: [BEM-C07, BEM-C08, BEM-C09, BEM-C23, BEM-H01, BEM-R01, BEM-U01, BEM-Z02, BEM-A01, BEM-A02, BEM-S03, BEM-S04, BEM-S05, BEM-V01, BEM-V02, BEM-D03, BEM-M01, BEM-M02]
+  - id: cors
+    accion: Poner CORS en una sola capa según {{capa_cors}}, con la política {{cors}}, y probarla con peticiones con y sin Origin
+    produce: un navegador que ve los errores reales de la API y no errores CORS
+    verifica: [BEM-C10, BEM-C11, BEM-K01, BEM-K02, BEM-K03, BEM-K04, BEM-K05]
+  - id: limites
+    accion: >
+      Dar a cada handler un presupuesto de {{presupuesto}} s, limitar el cuerpo a {{max_cuerpo}} KB y mover los
+      archivos a URL prefirmadas de {{vida_url}} min
+    produce: respuestas propias (504, 413) con cabeceras antes de que corte el gateway
+    verifica: [BEM-C12, BEM-C13, BEM-C14, BEM-C15]
+  - id: base
+    si: {base_datos: [postgres_transaccion, postgres_sesion]}
+    accion: Configurar el pool con {{conexiones}} conexiones por entorno y el modo de ejecución que pide el pooler elegido
+    produce: una base que aguanta un pico de concurrencia sin agotar conexiones
+    verifica: [BEM-C16, BEM-D01, BEM-D02]
+  - id: trabajo
+    si: {trabajo_largo: [cola, servicio_aparte]}
+    accion: Sacar de los handlers todo trabajo que sigue después de responder y llevarlo a {{trabajo_largo}}
+    produce: trabajos que terminan aunque Lambda congele el entorno
+    verifica: [BEM-C17, BEM-Q01, BEM-Q02]
+  - id: pruebas
+    accion: >
+      Probar el router con su herramienta de pruebas HTTP y el handler de Lambda con eventos sintéticos del gateway;
+      probar que cada variable que lee el código está declarada en el manifiesto
+    produce: la mayor parte de los fallos de despliegue detectados antes de desplegar
+    verifica: [BEM-C02, BEM-C08, BEM-C18, BEM-C27]
+  - id: build-go
+    si: {lenguaje: go}
+    accion: Construir con {{build_go}} y empaquetar el binario bootstrap
+    produce: un binario estático chico con su versión dentro
+    verifica: [BEM-G01, BEM-Z01]
+  - id: build-node
+    si: {lenguaje: node}
+    accion: Construir con {{build_node}}, revisar promesas sueltas con el linter y empaquetar solo el bundle
+    produce: un bundle chico, sin dependencias de desarrollo, con su versión y su sourcemap
+    verifica: [BEM-N01, BEM-N02, BEM-N03]
+  - id: pipeline
+    accion: >
+      Escribir el pipeline en {{ci}}: pruebas, build, despliegue con {{credenciales_ci}}, un despliegue por ambiente a
+      la vez, smoke test que compara la versión con el commit y procedimiento de vuelta atrás ({{vuelta_atras}})
+    produce: despliegues que solo hace el CI, de a uno, verificados y reversibles
+    verifica: [BEM-C19, BEM-C20, BEM-C21, BEM-C22, BEM-C24, BEM-O01, BEM-O02, BEM-S01, BEM-S02, BEM-P01, BEM-E01, BEM-B01, BEM-B02]
+  - id: observabilidad
+    accion: >
+      Registrar en JSON con el request id de Lambda, devolverlo en X-Request-Id, y crear alarmas de errores,
+      throttles, duración p95 cerca del timeout y 5xx del gateway
+    produce: un fallo en producción que se encuentra por su request id en minutos
+    verifica: [BEM-C25, BEM-C26]
+  - id: frontend
+    si: {frontend: s3_cloudfront}
+    accion: Desplegar el frontend a su bucket propio con la caché por tipo de archivo, la página de error de la SPA y la invalidación
+    produce: cada despliegue visible al recargar, sin rutas rotas
+    verifica: [BEM-F01, BEM-F02, BEM-F03]
+
+ficha:
+  nombre: "Back-end manager: API serverless en AWS Lambda"
+  objetivo_operativo:
+    problema: >
+      Servir la API del producto sin administrar servidores, pagando por uso y escalando solo, sin que un despliegue
+      borre configuración o el stack, deje la API con secretos por defecto, rompa el navegador con errores CORS, corte
+      peticiones largas a medias, agote las conexiones de la base o quede sin forma de volver atrás.
+    usuarios: >
+      El frontend del producto y sus usuarios, los clientes de sistema que llaman a la API, y el equipo que la
+      despliega y la opera.
+    criterio_de_exito: >
+      Todos los escenarios de conformidad pasan como pruebas automatizadas o como pasos del pipeline; cada despliegue
+      lo hace el CI, termina con un smoke test que confirma el commit desplegado, y una vuelta atrás toma minutos.
+  objetivo_tecnologico:
+    arquitectura: >
+      Hexagonal: el dominio y los casos de uso no saben que corren en Lambda. Un router HTTP estándar del lenguaje
+      ({{lenguaje}}) expone la API; en local y en pruebas lo sirve su propio servidor o su herramienta de pruebas, y en
+      la nube el adaptador del gateway lo envuelve. El arranque en frío prepara configuración, pool y clientes una sola
+      vez por entorno. El manifiesto versionado declara función, gateway, variables, permisos, red y recursos por
+      ambiente, y un pipeline del CI prueba, construye, despliega, verifica y permite volver atrás.
+    decisiones:
+      - "Lenguaje {{lenguaje}}, arquitectura {{arquitectura}}, empaquetado {{empaquetado}}"
+      - "La versión del commit queda dentro del paquete (Go: -X main.version; Node: APP_VERSION en el build) y la informa /health"
+      - "Un solo router para local, pruebas y nube; ningún handler escrito contra el evento del gateway"
+      - "Gateway {{gateway}} con todas las rutas hacia el router; el ruteo vive en el código, no en el gateway"
+      - "Infraestructura en {{infraestructura}}, un stage por ambiente ({{ambientes}}), red {{red}}"
+      - "CI {{ci}}, credenciales por {{credenciales_ci}}; secretos de la función desde {{secretos}}"
+      - "La versión del lenguaje del CI sale del proyecto (go.mod, .nvmrc o engines) en todos los jobs"
+      - "Logs JSON a stdout con request id; CloudWatch con retención de {{retencion_logs}} días"
+      - "Archivos grandes por URL prefirmada de S3 de {{vida_url}} min; la función nunca guarda en /tmp lo que deba persistir"
+    invariantes:
+      - "Un error en el arranque en frío hace fallar el arranque: nunca queda un handler a medias que falla en cada invocación"
+      - "El arranque en frío prepara solo lo que la función necesita y termina bajo {{init_max}}; lo pesado y opcional se crea al primer uso"
+      - "Un secreto no tiene valor por defecto en el código: si falta, la función no arranca y el error nombra la variable, nunca el valor"
+      - "Una variable vacía cuenta como ausente para lo obligatorio; un default solo existe para lo que no es secreto y está escrito junto a su variable"
+      - "Toda variable que el código lee está declarada en el manifiesto de cada ambiente; una prueba lo compara"
+      - "Lo cambiado a mano en la consola de AWS se considera deriva: se lleva al manifiesto o se pierde en el próximo despliegue"
+      - "Ningún secreto en el repositorio, en archivos .env versionados, en variables públicas del frontend, en logs ni en la salida del CI"
+      - "La función nunca recibe las credenciales de despliegue; accede a AWS solo con su rol de ejecución, de privilegio mínimo y por ambiente"
+      - "Ningún trabajo lanzado por un handler sigue después de responder: el congelamiento lo deja a medias; lo que debe seguir va a {{trabajo_largo}}"
+      - "Las consultas y llamadas externas tienen un plazo menor que el presupuesto; ninguna espera sin límite"
+      - "Cada handler responde dentro de {{presupuesto}} s con un error propio si no alcanza, antes del corte del gateway"
+      - "Un cuerpo sobre {{max_cuerpo}} KB responde 413 sin leerse; un archivo sobre {{carga_lambda}} nunca viaja por la función: va por URL prefirmada"
+      - "Las respuestas binarias (PDF, imágenes) llegan íntegras: el adaptador las codifica en base64 y el cliente las recibe sin cambios"
+      - "/tmp es efímero y de {{tmp_por_defecto}}: se usa solo como espacio de trabajo de una invocación y se limpia al terminar"
+      - "CORS lo responde una sola capa ({{capa_cors}}) con la política {{cors}}"
+      - "/health responde sin autenticación, sin datos internos, con la versión (commit) del paquete"
+      - "Solo el CI despliega; dos despliegues del mismo ambiente nunca corren a la vez"
+      - "El pipeline nunca borra el stack para volver a crearlo: un despliegue actualiza en su lugar"
+      - "La herramienta de infraestructura y el runtime tienen versión fijada; nada se instala «en su última versión» en el pipeline"
+      - "Cada despliegue termina con un smoke test: si /health no responde 200 con el commit desplegado en {{espera_smoke}}, el job falla"
+      - "Ningún token ni secreto viaja en la URL (query string): queda en logs de acceso"
+      - "Los errores internos (SQL, trazas, rutas) nunca llegan al cliente; llegan al log con el request id"
+      - "La concurrencia reservada protege la base y a los terceros; un pico sobre el tope responde 429, no tumba la base"
+      - "La documentación del despliegue (qué pipeline, qué manifiesto, qué variables) es una sola y coincide con el repositorio; una regla de despliegue sin prueba no cuenta"
+
+conformidad:
+  - id: BEM-C01
+    titulo: Arranque fallido visible
+    dado: un cliente de la función que no se puede crear en el arranque (p. ej. la configuración está incompleta)
+    cuando: Lambda inicia un entorno
+    entonces: el proceso falla con un error en el log y la invocación responde un error del runtime, no un fallo a medias en cada petición
+  - id: BEM-C02
+    titulo: El handler de Lambda llega al router
+    cuando: una prueba invoca el handler con un evento sintético del gateway a GET /health
+    entonces: responde 200 con la versión del paquete, igual que el router probado sin Lambda
+  - id: BEM-C03
+    titulo: El arranque prepara una sola vez
+    cuando: el mismo entorno atiende dos invocaciones seguidas
+    entonces: la configuración, el pool y los clientes se crearon una sola vez
+  - id: BEM-C04
+    titulo: Secreto ausente no arranca
+    cuando: se carga la configuración sin un secreto obligatorio, o con él vacío
+    entonces: devuelve un error que nombra la variable y la función no arranca; no se usa ningún valor por defecto
+  - id: BEM-C05
+    titulo: El error no filtra valores
+    cuando: la configuración falla por un valor mal formado de un secreto
+    entonces: el error y el log nombran la variable y el problema, nunca el valor
+  - id: BEM-C06
+    titulo: Sin secretos en el repositorio
+    cuando: el CI escanea el código, las pruebas y los archivos versionados (incluidos los .env del frontend)
+    entonces: falla ante llaves privadas, archivos .env con secretos o credenciales literales
+  - id: BEM-C07
+    titulo: Arquitectura coherente
+    cuando: se compara la arquitectura del build con la declarada en el manifiesto
+    entonces: coinciden
+  - id: BEM-C08
+    titulo: Toda variable leída está declarada
+    cuando: una prueba lista las variables que lee el código y las del manifiesto de cada ambiente
+    entonces: no hay ninguna leída sin declarar; las declaradas que nadie lee se reportan
+  - id: BEM-C09
+    titulo: Lo de la consola es deriva
+    dado: una variable agregada a mano en la consola de la función
+    cuando: se despliega desde el CI
+    entonces: la variable desaparece y la función sigue sana, porque todo lo que necesita está en el manifiesto
+  - id: BEM-C10
+    titulo: Preflight sin autenticación
+    cuando: llega un OPTIONS con Origin permitido y Access-Control-Request-Method, sin token
+    entonces: responde 204 con Allow-Origin, Allow-Methods y Allow-Headers (incluido Authorization) y Max-Age
+  - id: BEM-C11
+    titulo: Los errores traen CORS
+    cuando: desde un origen permitido se pide una ruta inexistente, una protegida sin token y una que falla con una excepción
+    entonces: el 404, el 401 y el 500 traen las cabeceras CORS y el navegador puede leer el error
+  - id: BEM-C12
+    titulo: Presupuesto de tiempo
+    dado: una dependencia que tarda más que el presupuesto
+    cuando: un handler la llama
+    entonces: el handler responde 504 propio con cabeceras CORS antes de {{presupuesto}} s más {{margen_corte}}, y el log trae el request id
+  - id: BEM-C13
+    titulo: Cuerpo demasiado grande
+    cuando: llega un JSON de más de {{max_cuerpo}} KB
+    entonces: responde 413 sin procesarlo
+  - id: BEM-C14
+    titulo: Archivos por URL prefirmada
+    cuando: el cliente sube un archivo de 20 MB
+    entonces: lo sube directo a S3 con una URL prefirmada de la API que vence en {{vida_url}} min; la función no recibe el archivo
+  - id: BEM-C15
+    titulo: Binario íntegro
+    cuando: un endpoint responde un PDF a través del gateway
+    entonces: el archivo descargado tiene el mismo hash que el original
+  - id: BEM-C16
+    titulo: Pool por entorno
+    cuando: se inspecciona el pool tras el arranque
+    entonces: tiene como máximo {{conexiones}} conexiones abiertas y no guarda ociosas más allá de lo configurado
+  - id: BEM-C17
+    titulo: Nada sigue después de responder
+    cuando: se revisan los handlers
+    entonces: ninguno deja trabajo corriendo (goroutine o promesa sin await) después de escribir la respuesta
+  - id: BEM-C18
+    titulo: Llamadas con plazo
+    cuando: un caso de uso hace una consulta o una llamada externa desde un handler
+    entonces: lleva un plazo derivado de la petición, nunca una espera sin límite
+  - id: BEM-C19
+    titulo: Solo el CI despliega, de a uno
+    cuando: se empujan dos commits seguidos a la rama de un ambiente
+    entonces: los despliegues corren en orden, sin cancelar el que está desplegando, y ninguno se pisa
+  - id: BEM-C20
+    titulo: Pruebas antes de desplegar
+    cuando: falla una prueba del job de pruebas
+    entonces: el job de despliegue no corre
+  - id: BEM-C21
+    titulo: Smoke test con versión
+    cuando: termina el despliegue
+    entonces: el pipeline llama /health hasta {{espera_smoke}}; si no responde 200 con el commit desplegado, el job falla
+  - id: BEM-C22
+    titulo: Vuelta atrás probada
+    dado: un despliegue que pasa las pruebas pero rompe en producción
+    cuando: se aplica el procedimiento de vuelta atrás
+    entonces: en minutos /health informa el commit anterior y la API responde
+  - id: BEM-C23
+    titulo: Retención de logs
+    cuando: se revisa el grupo de logs de la función
+    entonces: tiene una retención de {{retencion_logs}} días declarada en el manifiesto
+  - id: BEM-C24
+    titulo: Versiones fijadas
+    cuando: se revisan los jobs del CI
+    entonces: todos toman la versión del lenguaje del proyecto y la herramienta de infraestructura tiene versión fijada; ninguno borra el stack
+  - id: BEM-C25
+    titulo: Request id de punta a punta
+    cuando: una petición falla con 500
+    entonces: la respuesta trae X-Request-Id y ese id encuentra en CloudWatch la línea del error con su causa
+  - id: BEM-C26
+    titulo: Alarmas
+    cuando: la función devuelve errores, se estrangula o su duración p95 pasa el 80 % del timeout
+    entonces: salta una alarma que llega a una persona
+  - id: BEM-C27
+    titulo: Token fuera de la URL
+    cuando: llega una petición con el token en la query string
+    entonces: no se acepta como autenticación
+
+referencias:
+  - referencias/README.md
+  - referencias/go
+  - referencias/node
+  - referencias/serverless.example.yml
+  - referencias/github-actions/deploy-api.example.yml
+  - referencias/github-actions/deploy-frontend.example.yml
+  - referencias/azure-pipelines/deploy-api.example.yml
