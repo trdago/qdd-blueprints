@@ -1,0 +1,62 @@
+# Despliegue de la API en Azure Pipelines (ci=azure_pipelines, lenguaje=node; para Go cambia el paso de build).
+# Pruebas → build → despliegue → smoke test con versión. Un despliegue por ambiente a la vez (lock exclusivo del
+# environment) y aprobaciones en el environment de prod. Nunca «serverless remove» ni «npm install -g serverless»
+# sin versión: borrar el stack corta la API y puede borrar recursos con datos.
+# Vuelta atrás: Run pipeline sobre el último commit bueno.
+trigger:
+  branches: { include: [main, qa] }
+  paths: { include: [src/*, package.json, package-lock.json, serverless.yml, azure-pipelines.yml] }
+
+variables:
+  - name: stage
+    ${{ if eq(variables['Build.SourceBranchName'], 'main') }}:
+      value: prod
+    ${{ else }}:
+      value: qa
+  - group: api-$(stage)          # variable group por ambiente; los secretos marcados como secretos
+
+stages:
+  - stage: test
+    jobs:
+      - job: test
+        pool: { vmImage: ubuntu-latest }
+        steps:
+          - task: UseNode@1
+            inputs: { version: '22.x' }            # coincide con .nvmrc y con el runtime
+          - script: npm ci
+          - script: npm run lint --if-present      # no-floating-promises (BEM-N01)
+          - script: npm test                       # incluye la prueba de variables declaradas (BEM-C08)
+
+  - stage: deploy
+    dependsOn: test                                # sin pruebas verdes no se despliega (BEM-C20)
+    jobs:
+      - deployment: deploy
+        environment: api-$(stage)                  # aprobaciones y lock exclusivo (BEM-C19)
+        pool: { vmImage: ubuntu-latest }
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+                - task: UseNode@1
+                  inputs: { version: '22.x' }
+                - script: npm ci
+                - script: APP_VERSION=$(Build.SourceVersion) npm run build
+                  displayName: Build (versión = commit)
+                - task: AWSShellScript@1           # conexión de servicio de AWS del ambiente (OIDC o llaves con dueño y rotación)
+                  inputs:
+                    awsCredentials: aws-deploy-$(stage)
+                    regionName: $(AWS_REGION)
+                    scriptType: inline
+                    inlineScript: npx --yes serverless@3 deploy --stage $(stage)   # versión fijada; nunca remove
+                  env:                             # secretos solo por env, nunca en la línea de comando
+                    DATABASE_URL: $(DATABASE_URL)
+                    JWT_SECRET: $(JWT_SECRET)
+                - script: |
+                    for i in $(seq 1 12); do
+                      body=$(curl -fsS --max-time 5 "$(API_URL)/health" || true)
+                      echo "$body" | grep -q "\"version\":\"$(Build.SourceVersion)\"" && { echo "ok"; exit 0; }
+                      sleep 5
+                    done
+                    echo "##vso[task.logissue type=error]/health no informa $(Build.SourceVersion) tras 60 s"; exit 1
+                  displayName: Smoke test (versión desplegada = commit)
