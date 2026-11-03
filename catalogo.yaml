@@ -7,6 +7,7 @@ blueprints:
   auth: auth
   back-end-manager: back-end-manager
   correo: correo
+  front-end-manager: front-end-manager
 paquetes:
   base: [estado-por-tareas, consola-claude-code]
   ia: [estado-por-tareas, ciclo-de-vida-agentico]

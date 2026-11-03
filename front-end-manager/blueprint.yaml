@@ -1,0 +1,590 @@
+# Blueprint QDD: gestión del front-end (infraestructura, pipeline y despliegue).
+# Cómo crear, construir, desplegar y operar un front-end web estático (SPA o sitio estático) de cualquier framework,
+# con AWS por defecto. Destilado de un producto en producción que migró desde un PaaS a S3 + CloudFront, y de sus
+# fallos: un sitio congelado tras desplegar por borrar chunks viejos, secretos con prefijo público en el build, todo el
+# entorno del build inlineado en el bundle, cabeceras de seguridad perdidas en la migración, infraestructura creada a
+# mano y una carpeta que el PaaS publicaba como endpoint por convención.
+#
+#   qdd blueprint add front-end-manager
+#   qdd blueprint apply front-end-manager
+#   qdd modules approve front-end-manager
+id: front-end-manager
+nombre: Gestión del front-end
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+descripcion: >
+  El front se construye una vez por commit con un lockfile, sin secretos y solo con las variables públicas declaradas,
+  y se sirve desde un almacenamiento privado detrás de un CDN con cabeceras de seguridad, rutas correctas y caché por
+  tipo de archivo. Toda la infraestructura es código, cada ambiente tiene su rol de despliegue sin llaves de larga
+  duración, cada PR tiene su preview, y cada despliegue se verifica y se puede deshacer en un paso. Vale para cualquier
+  framework que produzca archivos estáticos.
+
+alcance:
+  incluye:
+    - "Build agnóstico del framework: lockfile, instalación limpia, lint, pruebas y salida estática con assets con hash"
+    - "Variables públicas del build: lista explícita, validación previa y ningún secreto en el artefacto"
+    - "Infraestructura como código: almacenamiento privado, CDN, certificado, DNS y WAF opcional"
+    - "Dominio propio: certificado, DNS y redirección al dominio canónico"
+    - "Cabeceras de seguridad (CSP, HSTS y demás) como política del CDN"
+    - "Rutas: fallback de SPA sin tapar los 404 reales de los assets"
+    - "Despliegue en dos pasadas con caché por tipo de archivo e invalidación"
+    - "Recuperación del cliente cuando falta un chunk después de un despliegue"
+    - "CI/CD con federación OIDC por ambiente, aprobación para producción y auditoría de dependencias"
+    - "Ambientes (staging, producción) y un preview por PR"
+    - "Versiones, rollback en un paso, verificación posterior al despliegue y limpieza de assets viejos"
+    - "Contrato con la API: URL base por ambiente, CORS explícito y GET autenticados sin caché"
+  excluye:
+    - "Renderizado en servidor (SSR) o funciones que generan contenido del front (las reglas de borde que solo reescriben rutas o ponen cabeceras sí entran)"
+    - "El diseño visual y la marca (ver project-branding)"
+    - "El backend y su despliegue"
+    - "Apps móviles nativas y su publicación en tiendas"
+    - "Analítica, pruebas A/B y SEO de contenido"
+
+vocabulario:
+  - termino: artefacto
+    definicion: La carpeta de salida del build de un commit (HTML de entrada, assets con hash y archivos públicos), versionada con su commit.
+  - termino: punto de entrada
+    definicion: >
+      Los archivos sin hash del artefacto: el HTML que carga la app (index.html), en un sitio estático el HTML de cada
+      ruta, y archivos como el manifest o robots.txt. Pueden cambiar en cada despliegue.
+  - termino: assets con hash
+    definicion: JS, CSS, fuentes e imágenes cuyo nombre incluye un hash de su contenido; un nombre nunca cambia de contenido.
+  - termino: variable pública
+    definicion: >
+      Variable que el framework inlinea en el JavaScript (prefijos como VITE_, NEXT_PUBLIC_, PUBLIC_ o REACT_APP_). Todo
+      el que abre la página la puede leer: nunca es un secreto.
+  - termino: ambiente
+    definicion: Una instancia completa del front (staging, producción) con su almacenamiento, CDN, dominio, rol y variables.
+  - termino: preview
+    definicion: Despliegue temporal de un PR en su propia URL, contra la API de staging, que se borra al cerrar el PR.
+  - termino: fallback de SPA
+    definicion: Responder el punto de entrada a una ruta de la app (p. ej. /reservas/123) para que el router del navegador la resuelva.
+  - termino: invalidación
+    definicion: Orden al CDN de olvidar su copia de ciertas rutas para servir la nueva.
+  - termino: federación OIDC
+    definicion: El CI obtiene credenciales temporales de un rol del proveedor con un token firmado de la ejecución, sin llaves guardadas.
+
+parametros:
+  - id: ambientes
+    pregunta: ¿Qué ambientes permanentes tiene el front, además de los previews?
+    ayuda: Producción siempre; staging permite probar contra datos de prueba antes de producir.
+    tipo: texto
+    por_defecto: "staging, produccion"
+    ejemplos: ["produccion", "staging, produccion", "dev, staging, produccion"]
+  - id: region
+    pregunta: ¿En qué región del proveedor viven el almacenamiento y los recursos del front?
+    ayuda: Cerca de las personas o donde la ley pide guardar los datos; el CDN igual sirve desde todo el mundo.
+    tipo: texto
+    por_defecto: "us-east-1"
+    ejemplos: ["sa-east-1", "us-east-1", "eu-west-1"]
+  - id: versiones_guardadas
+    pregunta: ¿Cuántas versiones anteriores se guardan para volver atrás?
+    tipo: numero
+    por_defecto: "10"
+    ejemplos: ["5", "10", "30"]
+  - id: dias_assets_viejos
+    pregunta: ¿Cuántos días se conservan los assets de versiones que ya no se guardan?
+    ayuda: Una pestaña abierta hace días todavía puede pedir los chunks de su versión.
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["7", "30", "90"]
+  - id: waf_limite_ip
+    si: {waf: gestionado}
+    pregunta: ¿Cuántas peticiones puede hacer una IP en la ventana antes de que el WAF la bloquee?
+    tipo: numero
+    por_defecto: "300"
+    ejemplos: ["100", "300", "1000"]
+  - id: waf_ventana
+    si: {waf: gestionado}
+    pregunta: ¿De cuántos segundos es la ventana del límite por IP?
+    tipo: numero
+    por_defecto: "60"
+    ejemplos: ["60", "300"]
+  - id: dias_preview
+    pregunta: ¿A los cuántos días se borra el preview de un PR que sigue abierto sin cambios?
+    tipo: numero
+    por_defecto: "14"
+    ejemplos: ["7", "14", "30"]
+
+constantes:
+  - id: cache_assets
+    valor: public, max-age=31536000, immutable
+    por_que: un asset con hash nunca cambia de contenido; el navegador y el CDN lo guardan un año sin preguntar
+  - id: cache_entrada
+    valor: no-cache
+    por_que: el punto de entrada se revalida en cada visita para que la nueva versión llegue apenas se despliega
+  - id: hsts
+    valor: max-age=31536000; includeSubDomains
+    por_que: un año obliga HTTPS en visitas futuras; el preload se decide aparte porque es difícil de deshacer
+  - id: tls_minimo
+    valor: TLS 1.2
+    por_que: las versiones anteriores tienen ataques conocidos y ningún navegador vigente las necesita
+  - id: freno_recarga
+    valor: 30 s
+    por_que: si una recarga por chunk faltante vuelve a fallar en ese tiempo, el problema no es la versión vieja y recargar entraría en bucle
+  - id: tiempo_verificacion
+    valor: 2 min
+    por_que: la verificación posterior al despliegue espera a que el CDN propague y corta antes de dejar producción rota por mucho tiempo
+
+preguntas:
+  - id: hosting
+    pregunta: ¿Dónde se sirve el front?
+    ayuda: Las reglas son las mismas; cambia con qué recursos se cumplen.
+    por_defecto: aws
+    opciones:
+      - valor: aws
+        descripcion: S3 privado detrás de CloudFront con Origin Access Control, ACM y Route 53 (u otro DNS).
+        depende_de:
+          - "Una cuenta de AWS por organización, con un proveedor OIDC para el CI"
+        decisiones:
+          - "Cabeceras con una Response Headers Policy de CloudFront; reescritura de rutas con una CloudFront Function"
+          - "El certificado del CDN se emite en ACM en us-east-1, que es donde CloudFront lo exige"
+        invariantes:
+          - "Bucket con las cuatro opciones de bloqueo de acceso público, BucketOwnerEnforced, cifrado y política de retención al borrar la pila"
+          - "La política del bucket permite leer solo a CloudFront, por servicio y condicionada al ARN de su distribución (OAC con firma sigv4); con la misma condición puede listar, para que un archivo inexistente responda 404 y no 403"
+          - "La distribución redirige HTTP a HTTPS, usa HTTP/2 y HTTP/3, comprime y exige {{tls_minimo}} como mínimo"
+        conformidad:
+          - id: FEM-A01
+            titulo: Solo la distribución lee el bucket
+            cuando: se pide un archivo directo al bucket o desde otra distribución
+            entonces: responde 403, y la misma ruta por la distribución del ambiente responde 200
+      - valor: otro_proveedor
+        descripcion: Otro proveedor de almacenamiento y CDN que cumpla el mismo contrato.
+        depende_de:
+          - "Almacenamiento privado, CDN con reglas de cabeceras y de reescritura (configuración o función de borde, ambas como código), API de invalidación y credenciales temporales para el CI"
+          - "Si el proveedor no federa OIDC, un intercambio propio que canjea el token OIDC del CI por un token del proveedor de corta duración y alcance mínimo"
+        decisiones:
+          - "Un documento mapea cada capacidad del contrato al recurso del proveedor elegido"
+        invariantes:
+          - "Si el proveedor no cubre una capacidad del contrato, no se usa para producción"
+        conformidad:
+          - id: FEM-O01
+            titulo: Contrato cubierto
+            cuando: se revisa el mapa del contrato del proveedor
+            entonces: cada capacidad (almacenamiento privado, cabeceras, reescritura, invalidación, OIDC, versiones) tiene su recurso y su prueba
+
+  - id: iac
+    pregunta: ¿Con qué se escribe la infraestructura como código?
+    por_defecto: cloudformation
+    opciones:
+      - valor: cloudformation
+        descripcion: CloudFormation o SAM, nativo de AWS y sin estado externo.
+        decisiones:
+          - "Las pilas de cada ambiente se separan por región cuando hace falta (el certificado del CDN en us-east-1, el resto en la región elegida); el PR muestra el conjunto de cambios y el merge lo aplica"
+        invariantes:
+          - "Los recursos con datos (bucket, registros de DNS) llevan política de retención al borrar o reemplazar"
+        conformidad:
+          - id: FEM-F01
+            titulo: Retención al borrar la pila
+            cuando: se borra la pila de un ambiente de prueba
+            entonces: el bucket y los registros de DNS siguen existiendo
+      - valor: terraform
+        descripcion: Terraform u OpenTofu, multi-proveedor.
+        depende_de:
+          - "Un estado remoto cifrado y con bloqueo (p. ej. bucket con bloqueo nativo o tabla de bloqueo)"
+        decisiones:
+          - "Un estado por ambiente; el PR muestra el plan y el merge lo aplica"
+        invariantes:
+          - "El estado nunca se versiona en el repositorio ni se guarda en local"
+        conformidad:
+          - id: FEM-T01
+            titulo: Estado con bloqueo
+            cuando: dos ejecuciones aplican cambios al mismo ambiente a la vez
+            entonces: la segunda espera o falla por el bloqueo y el estado queda consistente
+      - valor: cdk
+        descripcion: AWS CDK en el lenguaje del equipo.
+        decisiones:
+          - "Una pila por ambiente; el PR muestra el diff sintetizado y el merge lo despliega"
+        invariantes:
+          - "Las versiones de CDK y de sus construcciones van fijadas en el lockfile"
+        conformidad:
+          - id: FEM-K01
+            titulo: CDK fijado
+            cuando: se sintetiza dos veces el mismo commit en máquinas distintas
+            entonces: las plantillas generadas son iguales y la versión de CDK es la del lockfile
+
+  - id: tipo_sitio
+    pregunta: ¿Qué tipo de sitio genera el framework?
+    por_defecto: spa
+    opciones:
+      - valor: spa
+        descripcion: "Una app de una página con router del navegador (rutas con historial, sin almohadilla)."
+        invariantes:
+          - "Solo las rutas sin extensión de archivo reciben el index.html; un archivo inexistente (con extensión) responde 404"
+        conformidad:
+          - id: FEM-S01
+            titulo: Enlace profundo
+            cuando: se abre directo una ruta de la app como /reservas/123
+            entonces: responde 200 con el punto de entrada y la app muestra esa ruta
+      - valor: estatico
+        descripcion: Un sitio estático con un HTML por ruta (generador de sitios estáticos).
+        invariantes:
+          - "Una ruta sin HTML responde la página 404 del sitio con código 404"
+        conformidad:
+          - id: FEM-S02
+            titulo: Página no encontrada
+            cuando: se abre una ruta que no tiene HTML
+            entonces: responde 404 con la página 404 del sitio
+
+  - id: configuracion
+    pregunta: ¿Cómo recibe el front la configuración de cada ambiente (URL de la API, claves públicas)?
+    por_defecto: build
+    opciones:
+      - valor: build
+        descripcion: Variables públicas al compilar; un artefacto por ambiente, construido del mismo commit.
+        invariantes:
+          - "Cada ambiente se construye con sus propias variables; un artefacto nunca se copia de un ambiente a otro"
+        conformidad:
+          - id: FEM-B01
+            titulo: Cada artefacto con su ambiente
+            cuando: se inspecciona el artefacto de staging
+            entonces: contiene la URL de la API de staging y ninguna de producción
+      - valor: runtime
+        descripcion: Un solo artefacto; cada ambiente sirve su archivo de configuración, sin caché, que la app carga al arrancar.
+        decisiones:
+          - "El pipeline genera el archivo de configuración de cada ambiente desde sus variables públicas declaradas y lo publica junto al artefacto; es la única excepción a publicar solo el artefacto"
+          - "Al build solo entran variables iguales en todos los ambientes; lo que cambia por ambiente va en el archivo de configuración"
+        invariantes:
+          - "El archivo de configuración se valida contra un esquema al arrancar y nunca lleva secretos"
+        conformidad:
+          - id: FEM-R01
+            titulo: Mismo artefacto, otra configuración
+            cuando: el mismo artefacto se despliega en staging y en producción
+            entonces: cada uno usa la API de su ambiente
+          - id: FEM-R02
+            titulo: Configuración inválida
+            cuando: el archivo de configuración falta o no cumple el esquema
+            entonces: la app muestra un error claro y no llama a ninguna API
+
+  - id: dominio_canonico
+    pregunta: ¿Cuál es el dominio canónico del front de producción?
+    por_defecto: apex
+    opciones:
+      - valor: apex
+        descripcion: El dominio raíz (ejemplo.com); www redirige a él.
+      - valor: www
+        descripcion: El subdominio www (www.ejemplo.com); la raíz redirige a él.
+
+  - id: waf
+    pregunta: ¿Se pone un firewall de aplicaciones (WAF) delante del CDN de producción?
+    ayuda: Agrega un costo mensual; bloquea patrones de ataque conocidos y ráfagas de una IP.
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Sin WAF; el front es estático y la protección de datos vive en la API.
+      - valor: gestionado
+        descripcion: Reglas gestionadas del proveedor y un límite de peticiones por IP.
+        invariantes:
+          - "El WAF también es código; si hay staging, va allí en modo conteo, y en producción bloquea"
+          - "El límite es {{waf_limite_ip}} peticiones por IP en {{waf_ventana}} segundos"
+        conformidad:
+          - id: FEM-W01
+            titulo: Límite por IP
+            cuando: una IP supera el límite de peticiones en la ventana configurada
+            entonces: el CDN la bloquea y las demás IP siguen entrando
+
+pasos:
+  - id: build
+    accion: Construir con el lockfile y una instalación limpia, después de lint y pruebas, sin source maps públicos
+    produce: un artefacto reproducible por commit que no expone el código fuente
+    verifica: [FEM-C01, FEM-C02]
+  - id: variables
+    accion: Declarar la lista de variables públicas que el código lee, validarlas antes del build, prohibir leer el entorno completo y escanear el artefacto
+    produce: un build que falla claro si falta configuración y nunca publica un secreto
+    verifica: [FEM-C03, FEM-C04, FEM-C05, FEM-C06]
+  - id: infraestructura
+    accion: Escribir como código el almacenamiento privado en {{region}}, el CDN, el certificado y el DNS de cada ambiente ({{ambientes}}), sin recursos creados a mano
+    produce: ambientes reproducibles y auditables, servidos solo por HTTPS
+    verifica: [FEM-C07, FEM-C08, FEM-C09]
+  - id: dominio
+    accion: Emitir el certificado, publicar el DNS y redirigir al dominio canónico
+    produce: un solo dominio canónico con certificado válido que se renueva solo
+    verifica: [FEM-C10]
+  - id: cabeceras
+    accion: Poner en el CDN la política de cabeceras de seguridad, con una CSP armada desde la lista declarada de orígenes externos
+    produce: el navegador bloquea scripts, marcos y orígenes no declarados
+    verifica: [FEM-C11, FEM-C12]
+  - id: rutas
+    accion: Resolver las rutas sin extensión (al index.html en una SPA, a su HTML en un sitio estático) y dejar que los archivos inexistentes respondan 404
+    produce: enlaces profundos que funcionan y assets faltantes que no se disfrazan de HTML
+    verifica: [FEM-C13]
+  - id: despliegue
+    accion: Subir primero los assets con {{cache_assets}} sin borrar los anteriores, después el punto de entrada con {{cache_entrada}} borrando los archivos sin hash que ya no están en el artefacto, e invalidar
+    produce: la nueva versión llega al instante y las pestañas abiertas con la anterior siguen funcionando
+    verifica: [FEM-C14, FEM-C15, FEM-C16, FEM-C17]
+  - id: recuperacion
+    accion: Detectar en el cliente el error de chunk faltante y recargar una vez hacia la ruta pedida, con un freno de {{freno_recarga}}
+    produce: quien tenía la versión anterior abierta pasa a la nueva sin quedar en una pantalla rota ni en un bucle
+    verifica: [FEM-C18, FEM-C19]
+  - id: ci
+    accion: Desplegar desde el CI con un rol por ambiente obtenido por OIDC, permisos mínimos, aprobación para producción y auditoría de dependencias
+    produce: ninguna llave de larga duración y ningún ambiente que pueda tocar a otro
+    verifica: [FEM-C20, FEM-C21, FEM-C22, FEM-C23]
+  - id: previews
+    accion: Desplegar cada PR en su propia URL contra la API de staging, no indexable, y borrarlo al cerrar el PR o a los {{dias_preview}} días sin cambios
+    produce: cada cambio se revisa en un sitio real sin tocar producción ni dejar basura
+    verifica: [FEM-C24, FEM-C25, FEM-C26]
+  - id: versiones
+    accion: Guardar cada artefacto con su commit, verificar cada despliegue dentro de {{tiempo_verificacion}}, volver a la versión anterior en un paso y limpiar los assets viejos
+    produce: un despliegue malo se revierte solo o en un paso, sin reconstruir, y el almacenamiento no crece sin límite
+    verifica: [FEM-C27, FEM-C28, FEM-C29]
+  - id: api
+    accion: Resolver la URL base de la API en un solo lugar, pedir los GET autenticados sin caché y declarar en la API el origen del front de cada ambiente
+    produce: un front que habla con la API de su ambiente, sin datos viejos ni errores de CORS
+    verifica: [FEM-C30, FEM-C31]
+  - id: solo-artefacto
+    accion: Publicar solo el contenido del artefacto, nunca carpetas del repositorio por convención de una plataforma
+    produce: ningún archivo de configuración, fuente o script queda accesible por error
+    verifica: [FEM-C32]
+  - id: hosting-aws
+    si: {hosting: aws}
+    accion: Crear el bucket privado con OAC y la distribución con su política de cabeceras y su función de rutas
+    produce: un bucket que solo lee su distribución
+    verifica: [FEM-A01]
+  - id: hosting-otro
+    si: {hosting: otro_proveedor}
+    accion: Mapear cada capacidad del contrato al recurso del proveedor y probarla
+    produce: las mismas garantías con otro proveedor
+    verifica: [FEM-O01]
+  - id: estado-terraform
+    si: {iac: terraform}
+    accion: Guardar el estado remoto, cifrado y con bloqueo, uno por ambiente
+    produce: aplicaciones concurrentes que no corrompen el estado
+    verifica: [FEM-T01]
+  - id: retencion-cloudformation
+    si: {iac: cloudformation}
+    accion: Poner política de retención a los recursos con datos de cada pila
+    produce: borrar o reemplazar una pila no borra datos ni el dominio
+    verifica: [FEM-F01]
+  - id: fijar-cdk
+    si: {iac: cdk}
+    accion: Fijar las versiones de CDK y sus construcciones en el lockfile
+    produce: la misma síntesis en cualquier máquina
+    verifica: [FEM-K01]
+  - id: rutas-spa
+    si: {tipo_sitio: spa}
+    accion: Reescribir las rutas sin extensión al punto de entrada
+    produce: enlaces profundos de la app que funcionan
+    verifica: [FEM-S01]
+  - id: rutas-estatico
+    si: {tipo_sitio: estatico}
+    accion: Responder la página 404 del sitio con código 404
+    produce: rutas inexistentes con su página y su código correctos
+    verifica: [FEM-S02]
+  - id: config-build
+    si: {configuracion: build}
+    accion: Construir un artefacto por ambiente desde el mismo commit con sus variables
+    produce: cada ambiente con su propia configuración inlineada
+    verifica: [FEM-B01]
+  - id: config-runtime
+    si: {configuracion: runtime}
+    accion: Servir un archivo de configuración por ambiente sin caché y validarlo al arrancar la app
+    produce: un solo artefacto que se promueve de staging a producción
+    verifica: [FEM-R01, FEM-R02]
+  - id: waf-gestionado
+    si: {waf: gestionado}
+    accion: Poner las reglas gestionadas y el límite por IP como código delante del CDN de producción
+    produce: ataques conocidos y ráfagas bloqueados en el borde
+    verifica: [FEM-W01]
+
+ficha:
+  nombre: Gestión del front-end
+  objetivo_operativo:
+    problema: >
+      El front tiene que llegar a las personas rápido, seguro y siempre en su última versión, sin pantallas rotas
+      después de un despliegue, sin publicar secretos ni archivos internos, con infraestructura que se puede recrear y
+      con la posibilidad de volver atrás en un paso.
+    usuarios: >
+      Las personas que abren el sitio, el equipo que revisa cada PR en su preview y quien opera los despliegues.
+    criterio_de_exito: >
+      Todos los escenarios de conformidad pasan como pruebas automatizadas o verificaciones del pipeline, cada ambiente
+      se puede recrear desde el código, y un despliegue de producción se verifica solo y se revierte en un paso.
+  objetivo_tecnologico:
+    arquitectura: >
+      El CI construye el artefacto de cada commit (lockfile, lint, pruebas, build) y lo guarda versionado. Cada ambiente
+      permanente tiene almacenamiento privado servido solo por su CDN, con certificado, cabeceras de seguridad,
+      reescritura de rutas y caché por tipo de archivo, todo creado como código; los previews comparten un
+      almacenamiento con un prefijo por PR y un subdominio cada uno.
+      El despliegue sube los assets con hash, luego el punto de entrada, invalida, verifica y, si la verificación falla,
+      vuelve a la versión anterior. El CI se autentica con un rol por ambiente obtenido por OIDC.
+    decisiones:
+      - "Agnóstico del framework: el contrato es la carpeta de salida del build, no la herramienta que la produce"
+      - "El artefacto se construye una vez por commit (una vez por commit y ambiente si la configuración entra al build) y se guarda con su commit; volver atrás es desplegar un artefacto guardado"
+      - "Despliegue en dos pasadas: primero los assets con hash, después el punto de entrada, después la invalidación"
+      - "Las cabeceras de seguridad viven en el CDN como código de infraestructura (política o función de borde), no en el HTML ni en archivos de convención de una plataforma"
+      - "La CSP se arma desde una lista declarada de orígenes externos (API, fuentes, pagos, mapas)"
+      - "Un preview por PR contra la API de staging; producción solo se despliega desde la rama principal con aprobación"
+      - "Una sola función resuelve la URL base de la API; en desarrollo un proxy local atiende las rutas relativas"
+    invariantes:
+      - "El build usa el lockfile con una instalación limpia y falla si el lockfile no corresponde"
+      - "En producción no se publican source maps; si se generan, van solo a la herramienta de errores"
+      - "Al build solo entran las variables públicas declaradas; ninguna lleva un secreto"
+      - "El código nunca lee el objeto completo del entorno del build, solo variables nombradas"
+      - "Si falta una variable obligatoria, el pipeline falla antes del build y la nombra"
+      - "El artefacto se escanea antes de desplegar y el pipeline falla ante una llave privada, una llave de acceso del proveedor o un token con privilegios de servicio; una clave pública declarada como variable pública no cuenta"
+      - "El archivo de ejemplo de variables documenta todas las que el código lee"
+      - "El almacenamiento no es público: solo lo lee el CDN de su ambiente"
+      - "Ningún recurso de un ambiente se crea a mano; una comparación entre el código y lo desplegado no muestra diferencias"
+      - "Lo que tiene que existir antes del primer despliegue (la confianza OIDC, el estado remoto si lo hay, la zona DNS) es una pila de arranque, también como código, que una persona con permisos de administración aplica una vez"
+      - "La configuración del repositorio que el proveedor no maneja (ambientes, revisores, reglas de rama) queda en un script de arranque versionado"
+      - "La infraestructura la aplica un rol de infraestructura por ambiente, distinto del rol de despliegue y asumible solo desde la rama principal"
+      - "Todo se sirve por HTTPS con {{tls_minimo}} como mínimo y HTTP redirige a HTTPS"
+      - "El certificado cubre el dominio canónico y su variante; el DNS apunta las dos al CDN y el CDN (configuración o regla de borde) redirige la variante al canónico con 301"
+      - "Los enlaces, los previews y la verificación usan siempre el dominio propio; el dominio por defecto del CDN no se publica"
+      - "Toda respuesta lleva HSTS ({{hsts}}), CSP, X-Content-Type-Options nosniff, frame-ancestors 'none' o X-Frame-Options DENY, Referrer-Policy y Permissions-Policy"
+      - "La CSP no usa comodines ni unsafe-eval y solo nombra orígenes declarados"
+      - "Un asset que no existe responde 404, nunca el punto de entrada"
+      - "Los assets con hash se sirven con {{cache_assets}} y el punto de entrada con {{cache_entrada}}"
+      - "Un despliegue nunca borra los assets de la versión anterior"
+      - "La invalidación es obligatoria: si no se puede invalidar, el despliegue falla (el CDN puede guardar el punto de entrada en el borde; el navegador no)"
+      - "Un ambiente tiene como máximo un despliegue a la vez; el siguiente espera, y un pendiente que se reemplaza por uno más nuevo queda marcado como reemplazado, nunca como exitoso"
+      - "El cliente recarga una sola vez ante un chunk faltante; un segundo fallo dentro de {{freno_recarga}} muestra un aviso con un botón para reintentar"
+      - "El CI no guarda llaves de larga duración del proveedor: obtiene credenciales temporales por OIDC"
+      - "El rol de cada ambiente solo puede escribir en su almacenamiento e invalidar su CDN, y solo lo asume el repositorio desde ese ambiente"
+      - "Producción se despliega solo desde la rama principal y con aprobación de una persona"
+      - "Una dependencia con una vulnerabilidad alta o crítica conocida hace fallar el pipeline"
+      - "Los nombres de variables y secretos son propios de cada ambiente, sin valores de respaldo de otro ambiente"
+      - "Un preview no es indexable, usa la API de staging y nunca datos ni secretos de producción"
+      - "Se guardan las últimas {{versiones_guardadas}} versiones de cada ambiente; un asset que ninguna de ellas usa se borra {{dias_assets_viejos}} días después de quedar fuera"
+      - "Cada despliegue se verifica en menos de {{tiempo_verificacion}}: punto de entrada 200, un asset 200 con su tipo, cabeceras presentes y preflight de la API aceptado; si falla, vuelve a la versión anterior y el pipeline falla"
+      - "Si la API no responde a su chequeo de salud, la verificación lo informa como API caída y no revierte el front; en el primer despliegue, sin versión anterior, o si falla la verificación de una vuelta atrás, el pipeline falla, avisa y no intenta otra vuelta atrás"
+      - "Volver a una versión que ya pasó por producción no pide otra aprobación; la vuelta atrás automática tampoco"
+      - "Todo GET con credenciales se pide sin caché del navegador"
+      - "La API acepta por CORS solo los orígenes del front de su ambiente; la de staging acepta además los subdominios del dominio de previews, comparando el origen exacto y devolviendo ese origen; nunca responde un comodín con credenciales"
+      - "Solo el contenido del artefacto se publica: nada del repositorio queda accesible por convención de una plataforma"
+
+conformidad:
+  - id: FEM-C01
+    titulo: Build reproducible
+    cuando: se construye dos veces el mismo commit, y una vez con un lockfile que no corresponde al manifiesto
+    entonces: los dos artefactos son iguales y el tercer build falla
+  - id: FEM-C02
+    titulo: Sin source maps públicos
+    cuando: se inspecciona el artefacto de producción
+    entonces: no contiene archivos .map ni referencias sourceMappingURL
+  - id: FEM-C03
+    titulo: Falta una variable
+    cuando: el pipeline corre sin una variable pública obligatoria
+    entonces: falla antes del build con un mensaje que la nombra
+  - id: FEM-C04
+    titulo: Sin entorno completo
+    cuando: el código fuente lee el objeto completo del entorno del build
+    entonces: una prueba o el lint fallan e indican el archivo
+  - id: FEM-C05
+    titulo: Secreto en el artefacto
+    dado: un artefacto que contiene una llave privada o un JWT con rol de servicio
+    cuando: corre el escaneo previo al despliegue
+    entonces: el pipeline falla y no se despliega nada
+  - id: FEM-C06
+    titulo: Ejemplo de variables completo
+    cuando: el código lee una variable pública que no está en el archivo de ejemplo
+    entonces: una prueba falla y la nombra
+  - id: FEM-C07
+    titulo: Almacenamiento privado
+    cuando: se pide un archivo directo al almacenamiento, sin pasar por el CDN
+    entonces: responde 403
+  - id: FEM-C08
+    titulo: Sin recursos a mano
+    cuando: se compara la infraestructura desplegada de un ambiente con el código
+    entonces: no hay diferencias; un cambio hecho a mano aparece como diferencia
+  - id: FEM-C09
+    titulo: Solo HTTPS
+    cuando: se pide el sitio por HTTP, o por HTTPS con una versión de TLS menor que la mínima
+    entonces: HTTP redirige a HTTPS y la conexión con TLS viejo se rechaza
+  - id: FEM-C10
+    titulo: Dominio canónico
+    cuando: se pide la variante no canónica del dominio con una ruta
+    entonces: responde 301 a la misma ruta en el dominio canónico, con certificado válido en ambos
+  - id: FEM-C11
+    titulo: Cabeceras de seguridad
+    cuando: se pide el punto de entrada y un asset
+    entonces: ambos traen HSTS, CSP, nosniff, protección de marcos, Referrer-Policy y Permissions-Policy
+  - id: FEM-C12
+    titulo: CSP desde la lista
+    cuando: se arma la CSP con la lista de orígenes declarados
+    entonces: incluye la API y cada origen declarado, y no contiene comodines ni unsafe-eval
+  - id: FEM-C13
+    titulo: Asset inexistente
+    cuando: se pide un asset con hash que no existe
+    entonces: responde 404 y el cuerpo no es el punto de entrada
+  - id: FEM-C14
+    titulo: Caché por tipo
+    cuando: se despliega y se piden el punto de entrada y un asset con hash
+    entonces: el asset trae caché inmutable de un año y el punto de entrada se revalida siempre
+  - id: FEM-C15
+    titulo: La pestaña vieja sigue funcionando
+    dado: una pestaña abierta con la versión anterior
+    cuando: se despliega una versión nueva y la pestaña pide un chunk de su versión
+    entonces: el chunk sigue existiendo y responde 200
+  - id: FEM-C16
+    titulo: Invalidación obligatoria
+    cuando: el despliegue no puede invalidar el CDN (falta el identificador o el proveedor responde error)
+    entonces: el pipeline falla y lo dice
+  - id: FEM-C17
+    titulo: Un despliegue a la vez
+    cuando: dos o más despliegues al mismo ambiente empiezan casi juntos
+    entonces: nunca corren a la vez; cada uno espera al anterior o queda marcado como reemplazado por uno más nuevo
+  - id: FEM-C18
+    titulo: Chunk faltante recarga una vez
+    cuando: la app no puede cargar un chunk porque su versión ya no existe
+    entonces: recarga una vez hacia la ruta que se pidió
+  - id: FEM-C19
+    titulo: Sin bucle de recargas
+    dado: una recarga por chunk faltante hace menos del freno
+    cuando: vuelve a faltar un chunk
+    entonces: no recarga y muestra un aviso con un botón para reintentar
+  - id: FEM-C20
+    titulo: Sin llaves de larga duración
+    cuando: se revisan el pipeline y los secretos del repositorio
+    entonces: no hay llaves de acceso del proveedor; el despliegue usa un rol por OIDC
+  - id: FEM-C21
+    titulo: Cada rol en su ambiente
+    cuando: el rol de staging intenta escribir en el almacenamiento de producción o invalidar su CDN
+    entonces: el proveedor lo rechaza
+  - id: FEM-C22
+    titulo: Producción con aprobación
+    cuando: un despliegue a producción empieza desde una rama que no es la principal o sin aprobación
+    entonces: no se ejecuta
+  - id: FEM-C23
+    titulo: Dependencias auditadas
+    dado: una dependencia con una vulnerabilidad alta conocida
+    cuando: corre el pipeline
+    entonces: falla y nombra la dependencia
+  - id: FEM-C24
+    titulo: Preview por PR
+    cuando: se abre o actualiza un PR
+    entonces: el PR recibe la URL de su preview, que usa la API de staging
+  - id: FEM-C25
+    titulo: Preview borrado
+    cuando: el PR se cierra, o pasa el plazo sin cambios
+    entonces: su preview y sus archivos se borran
+  - id: FEM-C26
+    titulo: Preview no indexable
+    cuando: se pide cualquier página de un preview
+    entonces: trae X-Robots-Tag noindex
+  - id: FEM-C27
+    titulo: Volver atrás en un paso
+    cuando: se pide volver a la versión anterior
+    entonces: se despliega su artefacto guardado sin reconstruir y el sitio sirve esa versión
+  - id: FEM-C28
+    titulo: Verificación con vuelta atrás
+    dado: un despliegue cuya verificación falla (punto de entrada, asset, cabeceras o preflight de la API)
+    cuando: termina el despliegue
+    entonces: el sitio vuelve a la versión anterior y el pipeline falla con el motivo
+  - id: FEM-C29
+    titulo: Limpieza segura
+    cuando: corre la limpieza de assets viejos
+    entonces: borra solo los assets de versiones fuera de las guardadas y más antiguos que el plazo
+  - id: FEM-C30
+    titulo: GET autenticado sin caché
+    cuando: el front pide un GET con credenciales
+    entonces: lo pide sin caché del navegador
+  - id: FEM-C31
+    titulo: CORS por ambiente
+    cuando: la API de cada ambiente recibe un preflight desde el front de su ambiente, desde el front de otro ambiente y desde otro sitio
+    entonces: acepta solo el de su ambiente (y en staging también los previews), con las cabeceras que el front usa, y rechaza los demás
+  - id: FEM-C32
+    titulo: Solo el artefacto
+    cuando: se piden rutas de archivos del repositorio que no son del artefacto (un .env, un archivo fuente, un script de una carpeta de funciones de una plataforma)
+    entonces: responden 404
