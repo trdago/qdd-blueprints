@@ -1,0 +1,388 @@
+# Blueprint QDD: correo transaccional.
+# Cómo un producto envía correos a personas (verificación, recuperación, invitaciones, avisos, comprobantes) por SMTP
+# estándar, con Gmail por defecto y cualquier otro servidor SMTP a un cambio de configuración. Destilado de un backend
+# en producción que envía por Gmail con la biblioteca estándar y de sus fallos: un endpoint de prueba público que mandaba
+# correos a una persona real y una contraseña de aplicación escrita en el código.
+#
+#   qdd blueprint add correo
+#   qdd blueprint apply correo
+#   qdd modules approve correo
+id: correo
+nombre: Correo transaccional
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+descripcion: >
+  Un solo módulo envía los correos del producto por SMTP estándar: el resto del código pide «esta plantilla, a esta
+  persona, con estos datos» y nunca arma MIME ni habla SMTP. Los correos pasan por una cola persistente con reintentos e
+  idempotencia, salen de plantillas en español e inglés, respetan límites contra el abuso y el tope del proveedor, y no
+  dejan secretos en el código, los registros ni las pruebas. Gmail con contraseña de aplicación es la opción por
+  defecto; un servidor SMTP con dominio propio se elige con una pregunta, sin cambiar el código.
+
+alcance:
+  incluye:
+    - "Envío de correos transaccionales (verificación, recuperación, invitaciones, avisos y comprobantes) por SMTP estándar"
+    - "Configuración y secretos del servidor SMTP: Gmail con contraseña de aplicación u otro servidor SMTP"
+    - "Armado del mensaje: cabeceras validadas, UTF-8, HTML con alternativa de texto e imágenes incrustadas"
+    - "Plantillas en español e inglés"
+    - "Cola persistente con reintentos, idempotencia y registro de envíos"
+    - "Límites: tope diario del proveedor, por destinatario y por IP"
+    - "Entregabilidad: SPF, DKIM y DMARC, rebotes y lista de supresión"
+    - "Pruebas con un servidor SMTP falso y prueba manual controlada"
+  excluye:
+    - "Correo masivo o de marketing (boletines, campañas)"
+    - "Recibir o leer correo (IMAP o POP)"
+    - "SMS, WhatsApp y notificaciones push"
+    - "El diseño visual de las plantillas"
+    - "Qué correos envía cada flujo de negocio y cuándo: lo decide el módulo que lo usa (p. ej. auth)"
+
+vocabulario:
+  - termino: correo transaccional
+    definicion: >
+      Correo que una persona espera porque hizo algo o le pasó algo en el producto (verificar su correo, recuperar la
+      contraseña, una invitación, un comprobante). No es publicidad.
+  - termino: servidor SMTP
+    definicion: Servidor que recibe el correo del producto y lo entrega (Gmail, un proveedor o uno propio).
+  - termino: contraseña de aplicación
+    definicion: >
+      Contraseña que Google genera para una cuenta con verificación en dos pasos, para que un programa
+      envíe por SMTP sin usar la contraseña de la cuenta. Se revoca por separado.
+  - termino: remitente
+    definicion: Dirección y nombre visible del From. Debe ser una dirección que el servidor SMTP autoriza a esa cuenta.
+  - termino: cola de correo
+    definicion: >
+      Almacenamiento persistente (tabla de la base o servicio de colas) donde la operación deja el correo pedido y de
+      donde un trabajador lo envía.
+  - termino: clave de idempotencia
+    definicion: Identificador de un correo lógico; dos pedidos con la misma clave son el mismo correo y se envía una vez.
+  - termino: lista de supresión
+    definicion: Destinatarios que no reciben más correos por un rebote permanente o una queja.
+  - termino: rebote permanente
+    definicion: Rechazo definitivo del destinatario (buzón inexistente, dominio inválido); respuesta SMTP 5xx.
+
+parametros:
+  - id: nombre_remitente
+    pregunta: ¿Con qué nombre aparece el remitente?
+    ayuda: El nombre visible del From (la dirección la pone la configuración del servidor).
+    tipo: texto
+    por_defecto: "El nombre del producto"
+    ejemplos: ["QDD Móvil", "FairPlay Active"]
+  - id: idioma_por_defecto
+    pregunta: ¿En qué idioma va un correo cuando no se conoce el de la persona?
+    tipo: texto
+    por_defecto: "es"
+    ejemplos: ["es", "en"]
+  - id: tope_diario
+    pregunta: ¿Cuántos correos puede enviar el producto como máximo en un día?
+    ayuda: Con Gmail debe quedar bajo el límite de Google, con margen; con un proveedor, bajo lo que contrataste.
+    tipo: numero
+    por_defecto: "450"
+    ejemplos: ["450", "1800", "10000"]
+  - id: max_por_destinatario
+    pregunta: ¿Cuántos correos por hora puede recibir como máximo una misma dirección?
+    ayuda: Evita que un formulario se use para inundar el buzón de alguien.
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["3", "5", "10"]
+  - id: max_por_ip
+    pregunta: ¿Cuántos correos por hora puede disparar como máximo una misma IP?
+    ayuda: Registros o recuperaciones en serie desde una IP son el abuso más común.
+    tipo: numero
+    por_defecto: "20"
+    ejemplos: ["10", "20", "50"]
+  - id: reintentos
+    pregunta: ¿Cuántas veces se reintenta un correo ante un error temporal del servidor?
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["3", "5", "8"]
+  - id: retencion_envios
+    pregunta: ¿Cuántos días se guarda el registro de envíos?
+    ayuda: Sirve para soporte («no me llegó») y auditoría; más días, más datos personales guardados.
+    tipo: numero
+    por_defecto: "90"
+    ejemplos: ["30", "90", "365"]
+
+constantes:
+  - id: tls_smtp
+    valor: STARTTLS en el puerto 587 o TLS implícito en el 465
+    por_que: la contraseña y el contenido nunca viajan en claro; un servidor sin TLS no recibe credenciales
+  - id: espera_base
+    valor: 1 min
+    por_que: la mayoría de los errores temporales (4xx, límite momentáneo) se resuelven en segundos o minutos
+  - id: espera_tope
+    valor: 1 h
+    por_que: duplicar la espera sin tope dejaría correos útiles (un código que vence) varados por días
+  - id: tiempo_conexion
+    valor: 10 s
+    por_que: un servidor que acepta la conexión y no responde no debe dejar al trabajador colgado
+  - id: tiempo_envio
+    valor: 30 s
+    por_que: tope por mensaje completo, con imágenes incrustadas incluidas
+  - id: largo_linea_base64
+    valor: 76 caracteres
+    por_que: lo exige el formato MIME (RFC 2045); líneas más largas se cortan o se rechazan en algunos servidores
+  - id: tamano_max_mensaje
+    valor: 10 MB
+    por_que: un correo transaccional no lleva archivos grandes, y los servidores rechazan los mensajes que superan su tope
+  - id: limite_gmail
+    valor: 500 destinatarios al día (cuenta personal) y 2.000 (Google Workspace)
+    por_que: al superarlo Google bloquea el envío de la cuenta por 24 horas
+
+preguntas:
+  - id: proveedor_smtp
+    pregunta: ¿Por qué servidor SMTP salen los correos?
+    ayuda: El código es el mismo; cambia la configuración. Se puede empezar con Gmail y pasar a un dominio propio después.
+    por_defecto: gmail
+    opciones:
+      - valor: gmail
+        descripcion: Gmail (smtp.gmail.com) con la contraseña de aplicación de una cuenta dedicada al producto.
+        depende_de:
+          - "Una cuenta de Gmail dedicada al producto, con verificación en dos pasos"
+          - "Una contraseña de aplicación de esa cuenta, guardada en el gestor de secretos del despliegue"
+        decisiones:
+          - "Con gmail.com, Google firma SPF, DKIM y DMARC; para volumen o marca propia se pasa a smtp_propio"
+        invariantes:
+          - "La cuenta es del producto, nunca la personal de alguien del equipo"
+          - "La dirección del remitente es la de la cuenta o un alias declarado en la configuración y verificado en Gmail («Enviar como»)"
+          - "{{tope_diario}} queda bajo {{limite_gmail}}"
+          - "Una contraseña de aplicación filtrada se revoca en Google y se emite otra; borrarla del código no la invalida"
+        conformidad:
+          - id: CORREO-G01
+            titulo: Remitente de la cuenta
+            cuando: el servicio arranca con un remitente cuya dirección no es la de la cuenta ni un alias declarado
+            entonces: no arranca y dice qué dirección espera
+          - id: CORREO-G02
+            titulo: Tope bajo el límite de Google
+            cuando: el servicio arranca con un tope diario mayor que el límite de Gmail
+            entonces: no arranca y explica el límite
+      - valor: smtp_propio
+        descripcion: Un servidor SMTP con dominio propio (Resend, Amazon SES, Brevo, Postmark u otro).
+        depende_de:
+          - "Un dominio propio con acceso a su DNS"
+          - "Credenciales SMTP del proveedor y, si las ofrece, un webhook de rebotes con firma"
+        decisiones:
+          - "El remitente usa el dominio propio; las respuestas pueden ir a un buzón distinto con Reply-To"
+        invariantes:
+          - "Antes de enviar a personas reales, el dominio del remitente publica SPF que incluye al proveedor, DKIM y DMARC"
+          - "Los avisos de rebote o queja del proveedor solo se aceptan con firma válida"
+        conformidad:
+          - id: CORREO-D01
+            titulo: Dominio listo para enviar
+            cuando: se verifica el dominio del remitente (comando o CI) y le falta SPF, DKIM o DMARC
+            entonces: la verificación falla e indica el registro que falta
+          - id: CORREO-D02
+            titulo: Rebote por aviso firmado
+            dado: un aviso de rebote permanente o de queja del proveedor
+            cuando: llega con firma válida y luego otro igual sin firma válida
+            entonces: el primero agrega el destinatario a la supresión y el segundo se rechaza sin cambiar nada
+
+pasos:
+  - id: configuracion
+    accion: Leer la configuración SMTP (servidor, puerto, usuario, contraseña, remitente) con secretos obligatorios, {{tls_smtp}} exigido y tiempos de espera
+    produce: un módulo de correo que no arranca mal configurado, nunca envía credenciales en claro y no se cuelga
+    verifica: [CORREO-C01, CORREO-C03, CORREO-C24]
+  - id: sin-secretos
+    accion: Agregar al CI un escáner de credenciales SMTP literales y una prueba que recorre las rutas buscando envíos de correo sin autenticación
+    produce: ni contraseñas en el repositorio ni rutas de prueba que manden correos a quien sea
+    verifica: [CORREO-C02, CORREO-C20]
+  - id: mensaje
+    accion: Armar el mensaje en una función pura, sin E/S, con cabeceras validadas, asunto y nombres en UTF-8, texto y HTML, imágenes incrustadas y tamaño máximo
+    produce: mensajes correctos que se prueban sin servidor y no admiten inyección de cabeceras
+    verifica: [CORREO-C04, CORREO-C05, CORREO-C06, CORREO-C07, CORREO-C23]
+  - id: plantillas
+    accion: Escribir las plantillas versionadas (HTML y texto, español e inglés) con los datos de la persona escapados
+    produce: correos en el idioma de cada persona que no inyectan HTML ajeno
+    verifica: [CORREO-C08, CORREO-C18]
+  - id: cola
+    accion: Encolar en la misma transacción de la operación, con clave de idempotencia, y enviar desde un trabajador
+    produce: operaciones que no esperan al servidor SMTP, correos que no se pierden ni se duplican, y nada enviado si la operación se deshace
+    verifica: [CORREO-C09, CORREO-C12, CORREO-C13]
+  - id: reintentos
+    accion: Clasificar las respuestas SMTP; reintentar las temporales con espera de {{espera_base}} que se duplica hasta {{espera_tope}} y cortar las permanentes
+    produce: errores pasajeros que se recuperan solos y rechazos definitivos que no castigan al servidor
+    verifica: [CORREO-C10, CORREO-C11]
+  - id: limites
+    accion: Contar en un almacenamiento compartido el total del día, los envíos por destinatario y por IP, y aplicar los topes
+    produce: un producto que no se usa para inundar buzones ni agota la cuota del proveedor
+    verifica: [CORREO-C14, CORREO-C15, CORREO-C16]
+  - id: supresion
+    accion: Mantener la lista de supresión con los rebotes permanentes y las quejas, y sacar a quien verifica de nuevo su dirección
+    produce: no se insiste con direcciones que no existen o que no quieren recibir
+    verifica: [CORREO-C17]
+  - id: registro
+    accion: Registrar cada envío sin cuerpo, códigos ni enlaces con token, y no mostrar al cliente ningún error SMTP
+    produce: soporte y auditoría posibles sin exponer secretos ni la infraestructura
+    verifica: [CORREO-C19, CORREO-C22]
+  - id: pruebas
+    accion: Poner un servidor SMTP falso que captura los mensajes en la suite y prohibir conexiones reales en las pruebas
+    produce: pruebas que verifican el correo completo sin red ni destinatarios reales
+    verifica: [CORREO-C21]
+  - id: gmail
+    si: {proveedor_smtp: gmail}
+    accion: Configurar la cuenta dedicada, su contraseña de aplicación, el remitente de la cuenta y el tope bajo el límite de Google
+    produce: envío por Gmail que no reescribe el remitente ni bloquea la cuenta por exceso
+    verifica: [CORREO-G01, CORREO-G02]
+  - id: dominio
+    si: {proveedor_smtp: smtp_propio}
+    accion: Publicar SPF, DKIM y DMARC del dominio, verificarlos y recibir los avisos firmados de rebote y queja
+    produce: correos que llegan a la bandeja de entrada y una supresión al día
+    verifica: [CORREO-D01, CORREO-D02]
+
+ficha:
+  nombre: Correo transaccional
+  objetivo_operativo:
+    problema: >
+      Las personas tienen que recibir a tiempo los correos que esperan (verificar su correo, recuperar la contraseña,
+      una invitación, un comprobante), sin que el producto se use para inundar buzones, sin perder ni duplicar correos y
+      sin que una credencial o un endpoint de prueba queden expuestos.
+    usuarios: >
+      Las personas que usan el producto y reciben sus correos, y los módulos del producto que piden enviarlos (auth,
+      reservas, avisos).
+    criterio_de_exito: >
+      Todos los escenarios de conformidad pasan como pruebas automatizadas sin conexión a un servidor real, y un correo
+      de verificación llega a la bandeja de entrada de una cuenta de prueba en la prueba manual.
+  objetivo_tecnologico:
+    arquitectura: >
+      Un módulo de correo con una sola entrada: encolar(plantilla, destinatario, datos, clave de idempotencia). La
+      operación de negocio encola en su misma transacción; un trabajador toma los pendientes, aplica supresión y
+      límites, arma el mensaje con una función pura (cabeceras, MIME, plantillas) y lo envía por SMTP con TLS. Las
+      respuestas del servidor deciden reintento o fallo, y cada envío queda en un registro sin secretos. La
+      configuración (servidor, puerto, usuario, contraseña, remitente) llega por variables de entorno.
+    decisiones:
+      - "Fuera del módulo de correo nadie arma MIME ni habla SMTP: piden una plantilla con datos"
+      - "Envío por cola persistente: la operación encola en su transacción y responde; un trabajador envía"
+      - "Cada correo lleva una clave de idempotencia (propósito, entidad y destinatario, o un id generado)"
+      - "Plantillas versionadas en el repositorio, con HTML y texto, en español e inglés"
+      - "El remitente visible es {{nombre_remitente}}; la dirección la fija la configuración del servidor"
+      - "Respuesta 4xx: reintento con espera; 5xx: fallo definitivo, y un buzón inexistente va a supresión"
+      - "Las imágenes (QR, logo) van incrustadas en el mensaje, sin servicios externos ni píxeles de rastreo"
+    invariantes:
+      - "Sin la contraseña o el servidor SMTP el trabajador de correo no arranca; no hay valores por defecto con credenciales"
+      - "Ninguna credencial SMTP queda escrita en el código, las pruebas, los scripts ni los archivos versionados"
+      - "La conexión usa {{tls_smtp}}; si el servidor no ofrece TLS no se autentica ni se envía"
+      - "La conexión se corta a los {{tiempo_conexion}} y cada envío a los {{tiempo_envio}}"
+      - "Ninguna ruta ni comando expuesto envía correo sin autenticación ni a un destinatario escrito en el código; la prueba real es manual, con un destinatario configurado"
+      - "Las cabeceras se arman solo con valores validados: un CR o LF en el destinatario, el asunto o un nombre aborta el envío"
+      - "El asunto y los nombres van codificados en UTF-8 (RFC 2047)"
+      - "Todo correo lleva texto plano además del HTML (multipart/alternative)"
+      - "Las imágenes incrustadas van en base64 con líneas de {{largo_linea_base64}} y se referencian por Content-ID"
+      - "Un mensaje no supera {{tamano_max_mensaje}}"
+      - "Los datos de la persona se escapan en el HTML; solo la plantilla aporta HTML"
+      - "El correo va en el idioma de la persona; si no se conoce, en {{idioma_por_defecto}}"
+      - "Encolar nunca espera al servidor SMTP y un fallo de envío nunca cambia la respuesta de la operación que lo pidió"
+      - "Si la operación se deshace, su correo no se envía"
+      - "Dos pedidos con la misma clave de idempotencia se envían una sola vez"
+      - "Un error temporal se reintenta hasta {{reintentos}} veces con espera de {{espera_base}} que se duplica hasta {{espera_tope}}; después queda fallido y registrado"
+      - "Como máximo {{tope_diario}} correos al día; los que exceden quedan en cola para el día siguiente y se avisa"
+      - "Como máximo {{max_por_destinatario}} correos por hora a una dirección y {{max_por_ip}} por hora disparados desde una IP; lo que excede no se envía y la operación responde igual"
+      - "Los contadores de límites viven en un almacenamiento compartido entre instancias"
+      - "Un destinatario en la lista de supresión no recibe correos hasta que verifica de nuevo su dirección"
+      - "El registro de envíos guarda plantilla, estado, intentos, destinatario enmascarado y el id del servidor; nunca el cuerpo, códigos ni enlaces con token, y se borra a los {{retencion_envios}} días"
+      - "El cliente nunca ve errores SMTP, el servidor ni la cuenta remitente"
+      - "Las pruebas automáticas nunca abren una conexión a un servidor SMTP real"
+
+conformidad:
+  - id: CORREO-C01
+    titulo: Sin credenciales no arranca
+    cuando: el trabajador de correo arranca sin la contraseña o sin el servidor SMTP configurados
+    entonces: termina con un error que nombra lo que falta y no envía nada
+  - id: CORREO-C02
+    titulo: Sin credenciales en el repositorio
+    cuando: el escáner del CI revisa un archivo versionado con una contraseña SMTP o de aplicación literal
+    entonces: el CI falla e indica el archivo
+  - id: CORREO-C03
+    titulo: Sin TLS no hay envío
+    dado: un servidor SMTP que no ofrece STARTTLS ni TLS
+    cuando: el trabajador intenta enviar
+    entonces: no envía la contraseña ni el mensaje y el correo queda pendiente con un error de configuración
+  - id: CORREO-C04
+    titulo: Sin inyección de cabeceras
+    cuando: 'se pide un correo con el destinatario «ana@example.com\r\nBcc: otro@example.com» o un asunto con un salto de línea'
+    entonces: no se envía y el servidor falso no recibe ninguna cabecera agregada
+  - id: CORREO-C05
+    titulo: Asunto en UTF-8
+    cuando: se envía un correo con el asunto «Recuperación de contraseña · ñandú»
+    entonces: el mensaje lo codifica en RFC 2047 y el servidor falso lo decodifica idéntico
+  - id: CORREO-C06
+    titulo: Texto y HTML
+    cuando: se arma cualquier correo
+    entonces: es multipart/alternative con una parte de texto plano y otra HTML del mismo contenido
+  - id: CORREO-C07
+    titulo: Imagen incrustada
+    cuando: se envía un correo con un QR
+    entonces: el QR va como parte con Content-ID, en base64 de líneas de {{largo_linea_base64}}, y el HTML lo referencia por cid sin ninguna URL externa
+  - id: CORREO-C08
+    titulo: Datos escapados
+    dado: una persona llamada «<script>alert(1)</script>»
+    cuando: recibe un correo con su nombre
+    entonces: el HTML muestra el nombre escapado y no contiene la etiqueta
+  - id: CORREO-C09
+    titulo: Encolar no bloquea
+    dado: el servidor SMTP caído
+    cuando: una operación pide un correo
+    entonces: la operación responde igual y sin esperar al servidor, y el correo queda pendiente en la cola
+  - id: CORREO-C10
+    titulo: Reintento con espera
+    dado: un servidor que responde un error 4xx
+    cuando: el trabajador envía
+    entonces: reintenta con esperas desde {{espera_base}} que se duplican hasta {{espera_tope}}, como máximo las veces configuradas, y después lo marca fallido y registrado
+  - id: CORREO-C11
+    titulo: Rechazo permanente
+    dado: un servidor que responde 550 (buzón inexistente)
+    cuando: el trabajador envía
+    entonces: no reintenta, lo marca fallido y agrega el destinatario a la supresión
+  - id: CORREO-C12
+    titulo: Una sola vez
+    cuando: el mismo correo se encola dos veces con la misma clave de idempotencia
+    entonces: el servidor falso recibe un solo mensaje
+  - id: CORREO-C13
+    titulo: Nada si la operación se deshace
+    cuando: la operación que encoló un correo falla y deshace su transacción
+    entonces: el correo no se envía
+  - id: CORREO-C14
+    titulo: Tope diario
+    dado: que hoy ya se alcanzó el tope diario
+    cuando: se encola otro correo
+    entonces: no se envía hoy ni se pierde, queda para el día siguiente y se registra un aviso
+  - id: CORREO-C15
+    titulo: Límite por destinatario
+    cuando: se piden en una hora más correos que el límite para la misma dirección
+    entonces: los que exceden no se envían y la operación responde igual que con los demás
+  - id: CORREO-C16
+    titulo: Límite por IP
+    cuando: una misma IP dispara en una hora más correos que su límite (p. ej. registros en serie)
+    entonces: los que exceden no se envían, la operación responde igual y queda registrado
+  - id: CORREO-C17
+    titulo: Supresión
+    dado: un destinatario en la lista de supresión
+    cuando: se le encola un correo y luego verifica de nuevo su dirección
+    entonces: el primero no se envía y, tras verificar, vuelve a recibir correos
+  - id: CORREO-C18
+    titulo: Idioma de la persona
+    cuando: se envía la misma plantilla a una persona con idioma «en» y a otra sin idioma conocido
+    entonces: la primera la recibe en inglés y la segunda en el idioma por defecto
+  - id: CORREO-C19
+    titulo: Registro sin secretos
+    cuando: se revisan el registro de envíos y los logs después de enviar un código de verificación
+    entonces: no aparecen el código, ningún enlace con token ni el cuerpo, y el destinatario está enmascarado
+  - id: CORREO-C20
+    titulo: Sin endpoint de prueba
+    cuando: la prueba recorre todas las rutas públicas del servicio
+    entonces: ninguna envía correo sin autenticación ni a un destinatario escrito en el código
+  - id: CORREO-C21
+    titulo: Pruebas sin red
+    cuando: corre la suite completa
+    entonces: ninguna prueba abre una conexión a un servidor SMTP real y el servidor falso recibió todos los mensajes
+  - id: CORREO-C22
+    titulo: Error interno oculto
+    cuando: el servidor SMTP falla durante una operación pedida por un cliente
+    entonces: la respuesta al cliente no contiene el error SMTP, el servidor ni la cuenta remitente
+  - id: CORREO-C23
+    titulo: Tamaño máximo
+    cuando: un mensaje armado supera el tamaño máximo
+    entonces: no se envía y queda fallido con ese motivo
+  - id: CORREO-C24
+    titulo: Servidor que no responde
+    dado: un servidor que acepta la conexión y no contesta
+    cuando: el trabajador envía
+    entonces: el intento se corta al vencer el tiempo de espera y el correo queda para reintento

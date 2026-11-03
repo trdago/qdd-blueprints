@@ -6,6 +6,7 @@ blueprints:
   ciclo-de-vida-agentico: ciclo-de-vida-agentico
   auth: auth
   back-end-manager: back-end-manager
+  correo: correo
 paquetes:
   base: [estado-por-tareas, consola-claude-code]
   ia: [estado-por-tareas, ciclo-de-vida-agentico]

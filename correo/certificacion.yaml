@@ -1,0 +1,142 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: correo@1.0.0
+huella: 1834e2ef38be63d74704b0af17d9a70900a33705e00f9e7868aab26511a0dae3
+fecha: 2026-11-02 23:09
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        idioma_por_defecto: es
+        max_por_destinatario: "5"
+        max_por_ip: "20"
+        nombre_remitente: El nombre del producto
+        proveedor_smtp: gmail
+        reintentos: "5"
+        retencion_envios: "90"
+        tope_diario: "450"
+      escenarios:
+        - CORREO-C01
+        - CORREO-C02
+        - CORREO-C03
+        - CORREO-C04
+        - CORREO-C05
+        - CORREO-C06
+        - CORREO-C07
+        - CORREO-C08
+        - CORREO-C09
+        - CORREO-C10
+        - CORREO-C11
+        - CORREO-C12
+        - CORREO-C13
+        - CORREO-C14
+        - CORREO-C15
+        - CORREO-C16
+        - CORREO-C17
+        - CORREO-C18
+        - CORREO-C19
+        - CORREO-C20
+        - CORREO-C21
+        - CORREO-C22
+        - CORREO-C23
+        - CORREO-C24
+        - CORREO-G01
+        - CORREO-G02
+      lenguaje: go
+      comando: go test -count=1 ./... && go run ./cmd/escaner .
+      resultado: pruebas ✅ · escenarios con prueba 26/26
+      supuestos:
+        - 'Paso 1: nombres de las variables de entorno: CORREO_SMTP_HOST, CORREO_SMTP_PUERTO, CORREO_SMTP_USUARIO, CORREO_SMTP_CONTRASENA, CORREO_REMITENTE_NOMBRE (nombre del producto), CORREO_REMITENTE, CORREO_REMITENTE_ALIAS, CORREO_PROVEEDOR, CORREO_TOPE_DIARIO, CORREO_MAX_REINTENTOS.'
+        - 'Paso 1 / CORREO-C01: además de servidor y contraseña, también son obligatorios el usuario y el nombre del producto; el puerto por defecto es 587 y cualquier puerto distinto de 587/465 se rechaza al arrancar.'
+        - 'Paso 1: la dirección del remitente, si no se configura, es la del usuario SMTP.'
+        - 'Paso 1 / CORREO-C24: los 10 s de conexión y los 30 s por envío son campos de Config (fijos al cargar desde el entorno); la prueba baja TiempoEnvio a 300 ms solo para no esperar 30 s. Los 30 s cubren todo el envío, incluidos conexión y TLS.'
+        - 'Paso 1 / CORREO-C03: un error de configuración (sin STARTTLS/TLS, sin AUTH, credenciales rechazadas 5xx en AUTH) deja el correo pendiente, reprogramado a 1 min, y no gasta intentos; un fallo de TLS que no es por tiempo se trata como configuración.'
+        - 'Paso 1: la autenticación usa AUTH PLAIN o, si no está, AUTH LOGIN; el cliente SMTP es propio (net/textproto) para poder leer el id del servidor en la respuesta final.'
+        - 'Paso 2 / CORREO-C02: el escáner recorre todos los archivos del árbol (más estricto que solo los versionados; la carpeta no es un repositorio git), omite .git, tmp, vendor y node_modules, e ignora valores que son referencias (${...}, <...>, {{...}}). Las reglas son heurísticas (clave con smtp/mail/correo/gmail/app + pass/contraseña/clave/secret con valor literal, y 16 letras minúsculas tipo contraseña de aplicación de Google). Se deja un workflow de ejemplo en .github/workflows/ci.yml.'
+        - 'Paso 2 / CORREO-C20: «enviar correo sin autenticación» se interpretó como una ruta pública cuyo correo no pertenece a un flujo de cuenta. Registro y recuperación son públicas por naturaleza: se marcan FlujoCuenta, solo pueden usar las plantillas verificacion/recuperacion y solo escribir a la dirección del pedido (y quedan bajo el límite por IP). La prueba recorre un servicio HTTP de ejemplo (paquete servicio), porque la receta no define rutas propias.'
+        - 'Paso 3: la estructura MIME es multipart/alternative { text/plain, multipart/related { text/html, imágenes } } cuando hay imágenes; texto y HTML van en quoted-printable; se agregan Content-Language y Auto-Submitted. Los separadores se derivan del contenido para que Armar sea pura y determinista.'
+        - 'Paso 3 / CORREO-C04: el destinatario inválido se rechaza ya al encolar (error a la operación); un asunto con salto de línea que llega por los datos de la plantilla se detecta al armar y el correo queda fallido.'
+        - 'Paso 3 / CORREO-C23: los 10 MB se miden sobre el mensaje armado completo (incluido el base64).'
+        - 'Paso 4: plantillas disponibles: verificacion, recuperacion, invitacion y comprobante; la versión va en un comentario de cada archivo y el asunto en un bloque «asunto» del .txt. «en-US» se reduce a «en»; un idioma no admitido (p. ej. fr) usa es.'
+        - 'Paso 4 / CORREO-C07: la imagen del QR la entrega quien encola (bytes PNG); el módulo no genera QR. El Content-ID del QR es qr@correo y la plantilla comprobante lo exige al encolar.'
+        - 'Paso 5: la firma es Modulo.Encolar(tx, plantilla, destinatario, datos, clave); la IP del cliente viaja en Datos.IPOrigen. Clave vacía genera un id. La unicidad de la clave se aplica al confirmar (como ON CONFLICT DO NOTHING) y también dentro de la misma transacción.'
+        - 'Paso 5: el trabajador «toma» los pendientes marcándolos enviando con un arriendo de 2×30 s, para que dos instancias no tomen el mismo; si una instancia muere, el correo vuelve a estar disponible al vencer el arriendo.'
+        - 'Paso 6 / CORREO-C10: «hasta 5 veces» se interpretó como 5 reintentos después del primer intento (6 intentos en total); la espera tras el intento fallido n es min(1 min·2^(n-1), 1 h). Los errores de red (conexión rechazada, cortada o tiempo agotado) cuentan como temporales.'
+        - 'Paso 6 / CORREO-C11: va a supresión un 5xx con código extendido 5.1.x, o 550/551/553 sin código extendido; otros 5xx (p. ej. 5.7.1 de política) fallan sin suprimir. Un 5xx en cualquier etapa salvo AUTH es fallo definitivo.'
+        - 'Paso 7 / CORREO-C14: el día se cuenta en UTC con ventana fija (no los 24 h móviles de Google) y cada intento SMTP suma al tope diario; lo aplazado se reprograma a las 00:00 UTC siguientes y el aviso es un log WARN más el motivo en el registro.'
+        - 'Paso 7 / CORREO-C15, C16: ventanas fijas por hora según la hora de creación del pedido; los límites se cuentan una sola vez por correo (no en cada reintento); lo que excede queda en estado «descartado» con el motivo en el registro, y la operación responde igual porque el límite se aplica en el trabajador.'
+        - 'Paso 8 / CORREO-C17: las quejas se agregan con Supresion.Agregar(dirección, "queja") porque la receta no dice de dónde llegan; «verificar de nuevo» lo notifica el módulo que usa correo (p. ej. auth) con correo.DireccionVerificada. La receta no dice cómo verifica alguien suprimido si no recibe correos.'
+        - 'Paso 9 / CORREO-C19: el registro guarda una fila por correo con su último estado; el destinatario se enmascara como a***@dominio; el motivo solo lleva códigos SMTP (nunca el texto del servidor); la clave de idempotencia no se registra; la purga de 90 días es Trabajador.PurgarRegistro, que alguien debe programar.'
+        - 'Paso 9 / CORREO-C22: como el envío es asíncrono, el cliente ve solo un estado genérico (enviado, pendiente, no_entregado) en una ruta de ejemplo /cuenta/correo.'
+        - 'Paso 10 / CORREO-C21: la prohibición de red es una Guardia instalada en TestMain como DialPorDefecto (falla sin resolver nombres y hace fallar la suite si hubo algún intento); cada prueba inyecta el Dial del servidor falso. El servidor falso normaliza CRLF a LF al capturar (textproto.ReadDotBytes).'
+        - 'Paso 11 / CORREO-G01: la regla remitente = cuenta o alias declarado se aplica solo con proveedor gmail (CORREO_PROVEEDOR=gmail o host smtp.gmail.com); no se puede verificar desde el código que el alias esté verificado en «Enviar como» ni que la cuenta sea del producto.'
+        - 'Paso 11 / CORREO-G02: el límite es 500 si la cuenta es @gmail.com/@googlemail.com y 2000 si es de otro dominio (se asume Google Workspace); «bajo el límite» se aplica en sentido estricto (un tope igual al límite también se rechaza).'
+        - 'Criterio de éxito: la prueba manual (un correo de verificación real a una cuenta de prueba) no se automatiza ni se ejecutó; requiere credenciales reales configuradas por una persona.'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        idioma_por_defecto: en
+        max_por_destinatario: "3"
+        max_por_ip: "10"
+        nombre_remitente: QDD Móvil
+        proveedor_smtp: smtp_propio
+        reintentos: "3"
+        retencion_envios: "30"
+        tope_diario: "1800"
+      escenarios:
+        - CORREO-C01
+        - CORREO-C02
+        - CORREO-C03
+        - CORREO-C04
+        - CORREO-C05
+        - CORREO-C06
+        - CORREO-C07
+        - CORREO-C08
+        - CORREO-C09
+        - CORREO-C10
+        - CORREO-C11
+        - CORREO-C12
+        - CORREO-C13
+        - CORREO-C14
+        - CORREO-C15
+        - CORREO-C16
+        - CORREO-C17
+        - CORREO-C18
+        - CORREO-C19
+        - CORREO-C20
+        - CORREO-C21
+        - CORREO-C22
+        - CORREO-C23
+        - CORREO-C24
+        - CORREO-D01
+        - CORREO-D02
+      lenguaje: TypeScript (Node.js >= 24, type stripping nativo; probado en Node 26.2.0; sin dependencias)
+      comando: node --test "test/**/*.test.ts"
+      resultado: pruebas ✅ · escenarios con prueba 26/26
+      supuestos:
+        - 'General: TypeScript corre con el type stripping nativo de Node, sin compilar ni descargar paquetes. No se hizo verificación de tipos porque tsc no está instalado (se deja tsconfig.json con erasableSyntaxOnly).'
+        - 'Paso 1 / CORREO-C01: nombres de las variables: SMTP_HOST, SMTP_PORT (por defecto 587), SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_REPLY_TO (opcional, por la variante smtp_propio) y CORREO_MAX_REINTENTOS (opcional, por defecto 3). Además del servidor y la contraseña, también se exigen el usuario y el remitente.'
+        - 'Paso 1 / CORREO-C24: «la conexión se corta a los 10 s» se aplica a conexión TCP + TLS implícito + saludo 220, y «cada envío a los 30 s» a la sesión SMTP completa. Los valores 10 s y 30 s están fijos en la configuración; las pruebas pasan tiempos cortos directamente al transporte.'
+        - 'Paso 1 / CORREO-C03: la regla 587/465 la aplica leerConfigSmtp; en las pruebas el transporte apunta al servidor falso en un puerto efímero con el modo (starttls o implícito) explícito. El certificado del servidor siempre se verifica; las pruebas confían en una CA generada en la corrida con node:crypto.'
+        - 'CORREO-C03: «pendiente con error de configuración» no gasta un intento y se reprograma 1 h después. También cuentan como error de configuración (pendiente, nunca fallido) un certificado no confiable, un servidor sin AUTH y los 5xx en EHLO, STARTTLS o AUTH (p. ej. 535), porque el problema está de nuestro lado y no en el correo.'
+        - 'Paso 2 / CORREO-C02: lo que cuenta como credencial literal lo definí yo: una clave tipo SMTP_PASS/SMTP_PASSWORD/APP_PASSWORD/contraseña de aplicación asignada a un texto entre comillas (o sin comillas en archivos que no son código), una contraseña de aplicación con formato de Google (cuatro grupos de cuatro letras entre comillas) o una URL smtp(s)://usuario:clave@. Se excluyen node_modules, .git y tmp. Supuse GitHub Actions como CI (.github/workflows/correo.yml).'
+        - 'Paso 2 / CORREO-C20: la receta no trae servicio, así que escribí uno de ejemplo (src/servicio.ts, una tabla de rutas que se llama sin HTTP: salud, registro, verificar, recuperar, invitaciones y avisos del proveedor). Tomado al pie de la letra, «ninguna ruta envía correo sin autenticación» choca con el registro y la recuperación. Lo interpreté así: una ruta pública solo encola plantillas del sistema a la dirección de la cuenta en juego y dentro de los límites; enviar a un destinatario elegido (invitaciones) exige autenticación; ninguna ruta acepta asunto, contenido o plantilla libres y no hay rutas de prueba. Que no haya destinatarios escritos en el código se revisa con un escaneo de src/ y scripts/.'
+        - 'Paso 3: estructura MIME: la raíz siempre es multipart/alternative (texto + HTML). Con imágenes, la parte HTML es un multipart/related con el HTML y las imágenes. Texto y HTML van en base64 UTF-8. El asunto y los nombres siempre van en RFC 2047 tipo B (también si son ASCII), en palabras de hasta 39 bytes. Solo se aceptan direcciones ASCII (sin IDN ni SMTPUTF8). Se agrega Auto-Submitted: auto-generated.'
+        - 'Paso 3: para que la función sea pura, el Message-ID (derivado del id del correo, estable entre reintentos) y la fecha se pasan como datos. Los límites MIME se derivan de un hash del Message-ID.'
+        - 'CORREO-C23: los 10 MB son 10*1024*1024 bytes del mensaje ya armado (después de base64), con un rechazo temprano si las imágenes solas ya lo superan.'
+        - 'CORREO-C06: para que el texto y el HTML tengan «el mismo contenido», cada plantilla es una lista de párrafos de la que salen las dos partes. La prueba compara el HTML sin etiquetas con el texto.'
+        - 'Paso 4: las plantillas son un módulo TS versionado (src/plantillas/v1.ts) con marcadores {{campo}}. Los textos y el conjunto de plantillas son míos: verificacion, recuperacion, invitacion, comprobante (con QR) y aviso. Los campos de enlace solo aceptan https. Del idioma se toma el prefijo (es-CL → es); cualquier otro idioma o ninguno → en.'
+        - 'CORREO-C07: el QR lo genera el módulo que llama y llega como PNG en base64 dentro de los datos. La prueba usa bytes PNG falsos, no un QR real. No se incluyó logo.'
+        - 'Paso 5: la base y su transacción se simulan en memoria (instantánea y vuelta atrás si la operación falla). encolar exige una transacción activa. Un segundo pedido con la misma clave no hace nada y devuelve {nuevo: false}. El trabajador marca las filas como «enviando» al tomarlas, para que dos trabajadores no las dupliquen. Al terminar un correo se borran sus datos (código, token). El trabajador corre por intervalo o lo despierta un callback (alEncolar) después de confirmar la transacción, sin que la operación lo espere.'
+        - 'Paso 6 / CORREO-C10: «hasta 3 veces» se leyó como 3 reintentos después del primer intento (4 intentos en total). La espera antes del reintento n es min(60, 2^(n-1)) min, y la cantidad de reintentos se configura con CORREO_MAX_REINTENTOS. Conexión rechazada, conexión cerrada y tiempo agotado son errores temporales.'
+        - 'CORREO-C11: solo va a supresión un 550, 551 o 553 en RCPT (con código extendido 5.1.x si viene). Otros 5xx (p. ej. 554 5.7.1) dejan el correo fallido sin reintentar y sin suprimir.'
+        - 'Paso 7: las ventanas por hora son fijas (por hora de reloj) y se cuentan según la hora en que se encoló el correo. El día es el día calendario UTC. El contador diario cuenta intentos de envío, reintentos incluidos. Lo que excede el límite por destinatario o por IP queda «limitado» y no se reintenta. El orden de los chequeos es supresión → límites por hora → armado → tope diario. El almacenamiento compartido es una interfaz tipo Redis (incrementar con TTL); en las pruebas, una implementación en memoria compartida por dos instancias de trabajador.'
+        - 'CORREO-C14: «se avisa» quedó como una línea de log de nivel aviso más una entrada «diferido» en el registro de envíos. No se definió ningún canal de alerta externo.'
+        - 'Paso 8 / CORREO-C17: cómo verifica de nuevo su dirección una persona suprimida lo decide auth. Aquí el endpoint /verificar con el código llama a alVerificarDireccion, que la saca de la supresión. Las direcciones se comparan en minúsculas.'
+        - 'Paso 9 / CORREO-C19: el registro guarda una entrada por cambio de estado con fecha, idCorreo, plantilla, estado, intentos, destinatario enmascarado (a***@dominio), idServidor (lo que sigue a «queued as» en el 250) y un motivo en código, sin el texto del servidor. La purga a 30 días es un método purgar(ahora); agendarla queda fuera.'
+        - 'CORREO-C22: como el envío es asíncrono, la respuesta nunca depende de SMTP. Las rutas responden un mensaje genérico, y cualquier excepción interna se convierte en 500 «error_interno» sin detalle.'
+        - 'Paso 10 / CORREO-C21: la guarda intercepta net.Socket.prototype.connect y solo deja pasar 127.0.0.1, ::1 y localhost. Cada archivo de prueba la importa. Para «la suite completa», la prueba C21 vuelve a correr toda la suite como proceso hijo con una bitácora de red. «El servidor falso recibió todos los mensajes» se verifica así: toda conexión SMTP de la suite fue a un servidor falso o a un puerto cerrado de la propia prueba, y los servidores falsos capturaron los mensajes.'
+        - 'Paso 11 / CORREO-D01: la verificación lee TXT: un único SPF que incluye el mecanismo del proveedor (CORREO_SPF_INCLUDE), DKIM en <selector>._domainkey con p= no vacío (CORREO_DKIM_SELECTOR) y DMARC en _dmarc con p=none, quarantine o reject (CORREO_DOMINIO o el dominio de SMTP_FROM). Se ejecuta con scripts/verificar-dominio.ts y en el CI solo corre si está definida la variable CORREO_DOMINIO. No se verifica la firma DKIM de un mensaje real.'
+        - 'CORREO-D02: la receta no dice el formato ni la firma de los avisos del proveedor. Supuse HMAC-SHA256 en hex sobre «marcaTiempo.cuerpo» con un secreto compartido inyectado al servicio (p. ej. desde una variable de entorno), cabeceras x-aviso-tiempo y x-aviso-firma, tolerancia de 5 min y cuerpo JSON {tipo: rebote|queja, permanente, destinatario}. Un rebote no permanente se acepta sin suprimir. Sin secreto configurado se rechaza todo. Un proveedor real (SES/SNS, Svix, etc.) necesitaría su propio adaptador.'
+        - 'Variante smtp_propio: el remitente visible es «QDD Móvil» con la dirección de SMTP_FROM (dominio propio), y el Reply-To sale de SMTP_REPLY_TO si se define. El EHLO se presenta como «localhost» salvo que se configure otro nombre.'
+        - 'Criterio de éxito (prueba manual): queda scripts/prueba-manual.ts, que envía un solo correo de verificación a CORREO_PRUEBA_DESTINATARIO con la configuración real. No se ejecutó: aquí no hay red ni servidor real.'
+      aprobada: true
