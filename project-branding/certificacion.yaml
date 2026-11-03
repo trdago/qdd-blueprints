@@ -1,0 +1,162 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: project-branding@1.0.0
+huella: b8dadf6f6f14912bf91c944332c8c0ba950f923f978a3dcb94e7a9071cef61c6
+fecha: 2026-11-03 00:19
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        ancho_celular: "390"
+        ancho_escritorio: "1440"
+        emojis: nunca
+        formato_asunto: <mensaje> · <marca>
+        idioma_base: es-CL
+        lenguaje_visual: unico
+        max_lemas: "3"
+        max_valores: "5"
+        modo_color: claro
+        nivel_contraste: aa
+        resguardo: "0.25"
+        tamano_minimo_logo: "24"
+        tratamiento: tú
+      escenarios:
+        - PB-C01
+        - PB-C02
+        - PB-C03
+        - PB-C04
+        - PB-C05
+        - PB-C06
+        - PB-C07
+        - PB-C08
+        - PB-C09
+        - PB-C10
+        - PB-C11
+        - PB-C12
+        - PB-C13
+        - PB-C14
+        - PB-C15
+        - PB-C16
+        - PB-C17
+        - PB-C18
+        - PB-C19
+        - PB-C20
+        - PB-C21
+        - PB-C22
+        - PB-C23
+        - PB-C24
+        - PB-C25
+        - PB-C26
+        - PB-U01
+        - PB-M01
+        - PB-X02
+        - PB-E01
+      lenguaje: python
+      comando: python3 -m unittest discover -s tests -t .
+      resultado: pruebas ✅ · escenarios con prueba 30/30
+      supuestos:
+        - 'Paso 1/2 (PB-C01): la persona dueña es FICTICIA (marca/entrevista_FICTICIA.json, marcado FICTICIO). El agente escribió sus respuestas por encargo, lo que contradice la invariante «ninguna respuesta la escribe el agente»; la trazabilidad se verifica contra ese archivo.'
+        - 'Paso 1: la receta no lista las preguntas de la entrevista; se derivaron del vocabulario «plataforma de marca» (incluye antirreferentes, que el Paso 1 y la invariante no nombran) y se agregaron lemas secundarios y arquitectura de nombres.'
+        - 'Paso 2: la «aprobación» se registra como quién (aprobada_por) y cuándo (fecha ISO) dentro de plataforma.json, con referencia a la respuesta de aprobación en la entrevista.'
+        - 'Documentos versionados: la plataforma, la arquitectura de nombres y la guía de voz son JSON (marca/*.json) para poder validarlos sin dependencias; no hay versión .md.'
+        - 'Paso 3 (PB-C03): «nombre de paquete» se detecta con un patrón (a.b.c o palabras_con_guion_bajo) y el identificador técnico declarado.'
+        - 'PB-C03: la imagen para compartir se comprueba en su fuente og.svg; el PNG no lleva el nombre porque la biblioteca estándar no puede rasterizar texto con una fuente.'
+        - 'Paso 4 / PB-C08: Python estándar no trae datos CLDR y el locale es_CL del sistema no está garantizado; se usa una copia parcial a mano de datos CLDR es-CL en pb/cldr_es_CL.json (no verificable sin red). Formatos elegidos: fecha media dd-MM-y, larga d ''de'' MMMM ''de'' y, hora HH:mm, CLP sin decimales con ''.'' de miles.'
+        - 'Paso 4: el tratamiento «tú» se prueba con una lista de formas prohibidas (usted, vosotros, podéis...), no con análisis gramatical.'
+        - 'PB-C09: «dato inventado» y «jerga interna» se detectan con listas cerradas en la guía de voz; el «build de producción» se simula renderizando web, app, correos y notificaciones con una reserva de muestra.'
+        - 'Paso 5: DTCG en su borrador con colores hex y dimensiones como texto (''4px''); los modos van en $extensions[''pb.marca''].modos además de $value (iguales en el único modo). Rol, atributo, clase y pares también viven en $extensions.'
+        - 'Paso 5 / PB-C10: el atributo de cada token debe ser un valor o un rasgo de personalidad («es») de la plataforma. Los tokens de componente no llevan rol/atributo propio: heredan los del semántico al que apuntan.'
+        - 'Rol semántico: solo los roles de clase «fondo» exigen su par «sobre-»; borde-campo (interfaz) y sombra (decorativo) no.'
+        - 'Paso 6 / PB-C11: los temas generados solo exponen tokens semánticos y de componente; la prueba busca referencias a nombres «primitivo» en el código de plataformas/.'
+        - 'PB-C13: «código de una plataforma» = plataformas/** (.css, .html, .py). Los pesos tipográficos literales se permiten (la receta no los lista); los px de márgenes también.'
+        - 'Paso 7 / PB-C14: los pares usados se extraen de reglas CSS (una regla sin fondo usa el fondo por defecto de la guía), estilos en línea de las páginas renderizadas, árboles de widgets de la app y correos renderizados en «modo roles». El anidamiento CSS entre clases no se analiza.'
+        - 'PB-X02: «texto grande» no está definido en la receta; se asume la definición WCAG y todos los pares se declaran como texto normal o interfaz. El borde de campo se mide contra su fondo y contra el fondo que lo rodea.'
+        - 'Paso 8: no se pueden empaquetar archivos de fuentes reales sin red; la carga (rutas propias y licencia OFL) queda declarada en los tokens y en @font-face, sin los .woff2.'
+        - 'Paso 9 / PB-C17: «definición de la firma» = cada lugar de plataformas/ que lee el token de firma (regla CSS con --firma-*, función Python que lee FIRMA_* o ''firma.*'', plantilla con {{firma.*}}).'
+        - 'PB-U01 vs degradación en correo: el tema del correo guarda el mismo valor de token; la degradación (borde en vez de clip-path y sombra) se aplica al renderizar y está declarada en la guía.'
+        - 'Paso 10: el rasterizado (íconos, og.png, capturas) es un rasterizador propio sin antialiasing. «Monocroma clara» = tinta clara (sobre-marca) para fondos oscuros; «oscura» = tinta oscura (sobre-fondo).'
+        - 'Paso 10: el logotipo es texto SVG con la familia de display; no se convierte a trazos. El correo referencia el SVG horizontal por URL porque no se puede generar un PNG con texto.'
+        - 'PB-C21: el ícono adaptativo se genera a 432 px (108 dp × 4) con un isotipo de 60 dp; la zona segura es el círculo de 66 dp.'
+        - 'PB-C22: la página se pide a la app WSGI en memoria (sin red ni servidor).'
+        - 'PB-C24: el «fallo al cargar» en el navegador se simula con un doble que aplica el onerror; el logo de la cabecera no se trata como imagen de contenido.'
+        - 'Paso 13 / PB-C25: las capturas son PNG deterministas simulados (sin navegador) dibujados con tokens y logo; no muestran texto. El PR se representa con un dict (archivos cambiados y revisiones); la revisión humana se exige como una aprobación registrada.'
+        - 'PB-C25: el correo tiene ancho de escritorio (1440) y la app solo celular (390).'
+        - 'PB-C26: con un solo modo de marca (claro), si el sistema pide oscuro la app y el splash siguen en claro; «en el modo de color del sistema» se interpreta como «el modo del sistema no rompe la igualdad».'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        ancho_celular: "360"
+        ancho_escritorio: "1280"
+        emojis: lista_cerrada
+        formato_asunto: '<marca>: <mensaje>'
+        idioma_base: es-MX
+        lenguaje_visual: adn_y_firma
+        max_lemas: "0"
+        max_valores: "3"
+        modo_color: ambos
+        nivel_contraste: aaa
+        resguardo: "0.5"
+        tamano_minimo_logo: "16"
+        tratamiento: usted
+      escenarios:
+        - PB-C01
+        - PB-C02
+        - PB-C03
+        - PB-C04
+        - PB-C05
+        - PB-C06
+        - PB-C07
+        - PB-C08
+        - PB-C09
+        - PB-C10
+        - PB-C11
+        - PB-C12
+        - PB-C13
+        - PB-C14
+        - PB-C15
+        - PB-C16
+        - PB-C17
+        - PB-C18
+        - PB-C19
+        - PB-C20
+        - PB-C21
+        - PB-C22
+        - PB-C23
+        - PB-C24
+        - PB-C25
+        - PB-C26
+        - PB-A01
+        - PB-A02
+        - PB-M03
+        - PB-M04
+        - PB-X01
+        - PB-E02
+      lenguaje: TypeScript (Node >= 23, sin compilar; node:test, sin dependencias externas)
+      comando: node --test "pruebas/**/*.test.ts"
+      resultado: pruebas ✅ · escenarios con prueba 32/32
+      supuestos:
+        - 'Paso 1 / invariante de la entrevista: no hay persona real; las respuestas las da una persona dueña FICTICIA en marca/entrevista.FICTICIA.json (marcado FICTICIA) y la aprobación registrada también es ficticia.'
+        - 'Paso 2: los documentos de marca (plataforma, arquitectura de nombres, guía de voz) son JSON versionados en marca/ para poder validarlos; cada sección de la plataforma apunta a la respuesta (fuente) de la que sale.'
+        - 'Proyecto ficticio: Molienda, suscripción de café de origen en México (web, app simulada y correos); dominio molienda.example.'
+        - 'Invariante de lemas: «hasta 0 secundarios» se aplica literal: cualquier lema secundario hace fallar la validación.'
+        - 'Paso 5: DTCG 2025.10 (color como objeto colorSpace/components/hex, dimension y duration como {value, unit}); rol, atributo y modos van en $extensions[''mx.molienda'']; $value repite el valor del modo claro porque es obligatorio.'
+        - 'PB-C10: el atributo se exige a tokens semánticos y de componente (los primitivos son paleta); debe ser un valor o rasgo de la plataforma de marca.'
+        - 'Rol semántico «sobre»: el texto es el rol sobre-fondo; cada rol de fondo (fondo, superficie, marca, error, exito) tiene su par sobre-*.'
+        - 'PB-A01/A02: el ADN es la lista de patrones de plataforma.adn.tokens (toda la paleta, tipografía display, radio y componente del botón principal); los tokens de firma viven en tokens/plataformas/<plataforma>.json y solo pueden estar bajo semantico.firma.'
+        - '«la guía» (pantallas clave, fondos para el color de marca como texto, degradaciones): como la receta solo define la guía de voz, se creó marca/guia.json (guía visual); los fondos permitidos para el color de marca como texto se declaran en la fuente de tokens (marcaComoTexto).'
+        - 'PB-C14: pares usados = web: color y fondo de cada regla CSS (sin fondo propio, sobre color.fondo; bordes como elemento de interfaz); app: herencia del fondo en el árbol de vista; correo: pares registrados al renderizar.'
+        - 'PB-C08: zona horaria America/Mexico_City; fecha larga, hora de 12 h («2:30 p.m.»), montos en MXN; Intl del sistema (ICU de Node) con datos CLDR.'
+        - 'Tratamiento usted: detección heurística con una lista de formas de tuteo inequívocas; mayúsculas: solo se detecta el texto todo en mayúsculas.'
+        - 'PB-C09: «dato inventado» y «jerga interna» se detectan con listas cerradas en marca/voz.json; el build de producción es el catálogo compartido/textos.json (única fuente de textos visibles).'
+        - 'PB-E02: «nunca reemplaza una palabra» se vuelve una regla verificable: el emoji va al final, después de una oración completa.'
+        - 'Fuentes tipográficas: los .woff2 y las licencias OFL en fuentes/ son marcadores SIMULADOS (sin red); se verifica ruta propia, existencia y licencia registrada. Familia de un estilo sin font-family = la del body.'
+        - 'PB-C17: una «definición» de la firma es cada lugar del código que consume directamente su token (regla CSS o línea TS).'
+        - 'Logo: el logotipo es <text> con su ancho declarado en el maestro (data-logotipo-ancho) porque no hay métricas de fuente; el raster no tiene antialiasing; el PNG para compartir no lleva texto rasterizado y el nombre se verifica en compartir.svg, og:title y og:image:alt.'
+        - 'Monocromas: «mono-clara» = logo en color claro para fondos oscuros, «mono-oscura» = logo oscuro para fondos claros; la contraforma se recorta con máscara. La variante de modo oscuro usa los valores oscuros de los mismos tokens.'
+        - 'PB-C21: ícono de tienda 1024×1024 RGB (criterio de App Store; Play pide 512 y no se generó); adaptativo de Android a 4x (432 px) con isotipo de 60 dp; íconos del manifest maskable con el isotipo al 60%.'
+        - 'PB-C22: manifest con theme_color/background_color del modo claro (el manifest admite un solo valor); la página se pide a un manejador puro (sin servidor ni red).'
+        - 'PB-C25: las capturas son SVG deterministas generados desde las fuentes (sin navegador); web y correo a 360 y 1280, app solo a 360; la revisión humana se representa con el campo revisadoPor del PR.'
+        - 'PB-C26 / PB-M03: splash, app y selector simulados con funciones puras y dobles (almacén en memoria, preferencia del sistema).'
+        - 'PB-C18: con movimiento reducido la animación conserva el fundido sin desplazamiento (o se omite si se pide).'
+        - 'Correo: estilos en línea con los valores claros y bloque @media (prefers-color-scheme: dark) con los oscuros; la sombra se degrada al borde grueso declarado en la guía.'
+        - 'Paso 12: la imagen de respaldo se genera desde el SVG maestro (isotipo sobre superficie) en marca/generado/respaldo.svg.'
+      aprobada: true
