@@ -1,0 +1,166 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: front-end-manager@1.0.0
+huella: 1b93770b1519df1410879ab54be146f10c6e5c82f18d3164c8826a5a988e5bf8
+fecha: 2026-11-03 00:13
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        ambientes: staging, produccion
+        configuracion: build
+        dias_assets_viejos: "30"
+        dias_preview: "14"
+        dominio_canonico: apex
+        hosting: aws
+        iac: cloudformation
+        region: us-east-1
+        tipo_sitio: spa
+        versiones_guardadas: "10"
+        waf: "no"
+      escenarios:
+        - FEM-C01
+        - FEM-C02
+        - FEM-C03
+        - FEM-C04
+        - FEM-C05
+        - FEM-C06
+        - FEM-C07
+        - FEM-C08
+        - FEM-C09
+        - FEM-C10
+        - FEM-C11
+        - FEM-C12
+        - FEM-C13
+        - FEM-C14
+        - FEM-C15
+        - FEM-C16
+        - FEM-C17
+        - FEM-C18
+        - FEM-C19
+        - FEM-C20
+        - FEM-C21
+        - FEM-C22
+        - FEM-C23
+        - FEM-C24
+        - FEM-C25
+        - FEM-C26
+        - FEM-C27
+        - FEM-C28
+        - FEM-C29
+        - FEM-C30
+        - FEM-C31
+        - FEM-C32
+        - FEM-A01
+        - FEM-F01
+        - FEM-S01
+        - FEM-B01
+      lenguaje: Python 3 (biblioteca estándar, unittest) + JavaScript (el JS del cliente y la CloudFront Function se ejecutan con node desde las pruebas)
+      comando: python3 -m unittest discover -s tests -t .
+      resultado: pruebas ✅ · escenarios con prueba 36/36
+      supuestos:
+        - 'General: el proveedor es AWS (hosting → aws, iac → cloudformation); S3, CloudFront, ACM, Route 53, IAM/STS y GitHub se simulan con dobles en memoria (tests/dobles). El doble de CloudFormation interpreta las plantillas reales (Ref, Fn::Sub, Fn::GetAtt, Fn::Join, Fn::ImportValue, DeletionPolicy) y el de CloudFront ejecuta la CloudFront Function real con node.'
+        - 'General: las pruebas del JS (FEM-C09..C11, C13..C16, C18, C19, C24..C30, S01, A01 por la CDN) necesitan node en el PATH; sin node se marcan como omitidas, no como pasadas.'
+        - 'Paso 1: el ''framework'' del front de ejemplo es un empaquetador mínimo en Python (fem/construccion.py) que pone hash a cada módulo y lo emite como ES module; el contrato es la carpeta de salida. La ''instalación limpia'' borra node_modules y corre `npm ci` solo si el lockfile tiene paquetes (el ejemplo no tiene dependencias).'
+        - 'Paso 1 / FEM-C01: ''el lockfile no corresponde al manifiesto'' se interpreta como en `npm ci`: las dependencias declaradas en package.json difieren de las del paquete raíz del lockfile o no están resueltas.'
+        - 'Paso 1 / FEM-C02: los source maps solo se generan con --mapas <carpeta>, fuera del artefacto y sin comentario sourceMappingURL; subirlos a la herramienta de errores queda fuera.'
+        - 'Paso 2: la lista de variables públicas es front/variables-publicas.json (prefijo VITE_); los valores de cada ambiente están versionados en ambientes/<ambiente>.json (no son secretos), así no hay valores de respaldo de otro ambiente ni secretos en el repositorio.'
+        - 'Paso 2 / FEM-C05: ''token con privilegios de servicio'' = JWT cuyo claim role es service_role/service/admin/supabase_admin; también se detectan llaves AWS (AKIA/ASIA), llaves privadas PEM, sk_live_/rk_live_ y tokens de GitHub. Un JWT anon/authenticated o una PEM pública no cuentan.'
+        - 'Paso 3 / Paso 4: staging usa staging.ejemplo.com como canónico y www.staging.ejemplo.com como variante (la receta solo define apex/www para el dominio raíz).'
+        - 'Paso 3: todo vive en us-east-1 (almacenamiento y certificado), por eso no hace falta separar pilas por región; el certificado va en la misma pila del ambiente.'
+        - 'Paso 4: además de www, cualquier host que no sea el canónico (incluido el dominio por defecto de CloudFront) redirige con 301 al canónico, para no publicar el dominio del CDN.'
+        - 'Paso 5: Permissions-Policy va como cabecera personalizada de la Response Headers Policy (CloudFront no la trae en SecurityHeadersConfig). Los orígenes declarados se agrupan por categoría (api, estilos, fuentes, pagos, mapas) y cada categoría entra en directivas fijas.'
+        - 'Paso 6 / FEM-C32: además de las rutas con extensión, las que tienen un segmento que empieza con punto (/.git/config) se tratan como archivo (404, sin fallback). Rutas sin extensión ni punto (p. ej. /Dockerfile) reciben el index.html, nunca el archivo del repositorio.'
+        - 'Paso 7: ''assets con hash'' = archivos en assets/ con un hash hexadecimal de 10 caracteres en el nombre; todo lo demás es punto de entrada. Un asset con hash que ya existe no se vuelve a subir.'
+        - 'Paso 7 / FEM-C17: el candado de un despliegue a la vez es el grupo `concurrency` de GitHub Actions por ambiente (cancel-in-progress: false); ColaDespliegues reproduce y prueba esa semántica (uno corre, uno espera, el pendiente reemplazado queda ''reemplazado''). La limpieza y la vuelta atrás comparten el grupo del ambiente.'
+        - 'Paso 8: el freno se guarda en sessionStorage; si no está disponible no se recarga (no habría freno que sobreviva a la recarga) y se muestra el aviso. El botón Reintentar navega a la ruta pedida sin borrar el freno.'
+        - 'Paso 9: el `sub` del token OIDC se personaliza a repo+context+ref (repo:ORG/REPO:environment:ENV:ref:REF) para que la confianza exija a la vez el ambiente y la rama principal. Formato asumido de la personalización de GitHub; verificar al aplicar el arranque del repo.'
+        - 'Paso 9: los roles de despliegue viven en la pila de cada ambiente (necesitan el ARN de su bucket y su distribución), con un límite de permisos de la pila de arranque; los roles de infraestructura y de ''plan'' (solo conjuntos de cambios, para que el PR los muestre) viven en la pila de arranque.'
+        - 'Paso 9 / FEM-C22: la vuelta atrás manual y la limpieza usan un ambiente de GitHub ''<ambiente>-operacion'' sin revisores y solo desde main, que el rol de despliegue también acepta; así volver a una versión ya verificada no pide otra aprobación.'
+        - 'Paso 9 / FEM-C23: la auditoría en el CI es `npm audit --audit-level=high`; fem/auditoria.py la reproduce contra una base de avisos en memoria (sin red).'
+        - 'Paso 10: los previews comparten un bucket con prefijo pr-<n>/ y una distribución con certificado y DNS comodín *.previews.ejemplo.com; la función de borde mapea el subdominio al prefijo. ''14 días sin cambios'' = el último objeto subido bajo el prefijo tiene más de 14 días.'
+        - 'Paso 11: ''versiones guardadas'' = los últimos 10 commits distintos del historial de despliegues exitosos del ambiente; la fecha en que un asset ''queda fuera'' es la del despliegue que sacó de la ventana a la última versión que lo usaba (si ninguna versión registrada lo usa, su fecha de subida). Los artefactos guardados que salen de la ventana se borran.'
+        - 'Paso 11 / FEM-C28: si la API está caída, el despliegue queda registrado, se avisa ''API caída'', no se revierte y el pipeline NO falla (la receta no dice si falla).'
+        - 'Paso 12: el contrato CORS (fem/cors.py) es la configuración que la API de cada ambiente debe cargar; la API real queda fuera de alcance y se prueba con un doble que usa esa misma lógica. En desarrollo, sin VITE_API_URL, el front llama a /api y el proxy local (fem/servidor_dev.py) lo reenvía.'
+        - 'Workflows: se escriben en el subconjunto JSON de YAML (todo JSON es YAML válido) para leerlos con la biblioteca estándar.'
+        - Cuenta 123456789012, repositorio mi-org/front-ejemplo y dominio ejemplo.com son valores de ejemplo.
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        ambientes: produccion
+        configuracion: runtime
+        dias_assets_viejos: "7"
+        dias_preview: "7"
+        dominio_canonico: www
+        hosting: otro_proveedor
+        iac: terraform
+        region: sa-east-1
+        tipo_sitio: estatico
+        versiones_guardadas: "5"
+        waf: gestionado
+        waf_limite_ip: "100"
+        waf_ventana: "300"
+      escenarios:
+        - FEM-C01
+        - FEM-C02
+        - FEM-C03
+        - FEM-C04
+        - FEM-C05
+        - FEM-C06
+        - FEM-C07
+        - FEM-C08
+        - FEM-C09
+        - FEM-C10
+        - FEM-C11
+        - FEM-C12
+        - FEM-C13
+        - FEM-C14
+        - FEM-C15
+        - FEM-C16
+        - FEM-C17
+        - FEM-C18
+        - FEM-C19
+        - FEM-C20
+        - FEM-C21
+        - FEM-C22
+        - FEM-C23
+        - FEM-C24
+        - FEM-C25
+        - FEM-C26
+        - FEM-C27
+        - FEM-C28
+        - FEM-C29
+        - FEM-C30
+        - FEM-C31
+        - FEM-C32
+        - FEM-O01
+        - FEM-T01
+        - FEM-S02
+        - FEM-R01
+        - FEM-R02
+        - FEM-W01
+      lenguaje: TypeScript sobre Node >= 23.6 (type stripping, sin compilar, sin dependencias externas)
+      comando: node --test "test/**/*.test.ts"
+      resultado: pruebas ✅ · escenarios con prueba 38/38
+      supuestos:
+        - 'hosting → otro_proveedor: la receta no dice cuál es el proveedor por defecto ni cuál es el «otro»; como el Paso 3 fija sa-east-1 (nombre de región de AWS) se eligió AWS (S3 + CloudFront + ACM + Route 53 + WAFv2 + IAM/OIDC) y el contrato queda mapeado en docs/contrato-proveedor.md. Los servicios se simulan en memoria (sim/cloud.ts).'
+        - 'Paso 3 «cada ambiente (produccion)»: se construyeron staging, producción y la pila de previews, porque FEM-C21, FEM-R01, los previews (API de staging) y el WAF en modo conteo exigen staging.'
+        - 'iac → terraform: el modelo neutral (infra/model.ts) es la fuente de verdad y genera Terraform en sintaxis JSON (infra/terraform/*/main.tf.json). No hay terraform instalado ni red: el apply, el plan sin diferencias y el bloqueo del estado se prueban con dobles (sim/terraform.ts).'
+        - 'CI: se eligió GitHub Actions (OIDC de token.actions.githubusercontent.com, ambientes con revisores y reglas de rama); la receta no nombra el CI.'
+        - 'Paso 7 vs configuracion → runtime: el borrado de «archivos sin hash que ya no están en el artefacto» exceptúa config.json, que se genera por ambiente y se publica junto al artefacto.'
+        - 'Paso 7: un asset con hash se reconoce por el nombre (segmento de 8+ caracteres con algún dígito antes de la extensión), sin depender de la herramienta de build.'
+        - 'dominio_canonico → www: se aplica a producción (ejemplo.com → www.ejemplo.com). Staging usa un solo host (staging.ejemplo.com) sin variante y los previews pr-<n>.preview.ejemplo.com con un certificado comodín.'
+        - 'CORS de staging con previews: «subdominios del dominio de previews» + «comparando el origen exacto» se resolvió con una expresión anclada ^https://pr-[0-9]{1,6}\.preview\.ejemplo\.com$ que compara el origen completo y lo devuelve tal cual.'
+        - 'Variables «propias de cada ambiente»: mismos nombres que el código lee (PUBLIC_API_URL…), definidos por ambiente del CI (GitHub Environments) y leídos sin respaldo desde otro ambiente ni desde el repositorio.'
+        - 'FEM-C03 con configuración runtime: las variables del build (PUBLIC_APP_NAME) fallan antes del build; las del ambiente (PUBLIC_API_URL) fallan antes de subir nada al generar el config.json.'
+        - 'Vuelta atrás sin otra aprobación: como en GitHub la aprobación va atada al ambiente, la vuelta atrás manual corre en un ambiente production-rollback (solo main, sin revisores) que el rol de producción también acepta, y el script solo acepta versiones que ya pasaron por producción.'
+        - 'El plan en el PR necesita credenciales y el rol de infraestructura solo se asume desde main: se agregó un rol de solo lectura para el plan (pull_request).'
+        - 'Verificación: primero el chequeo de salud de la API; si no responde se informa «API caída» y no se revierte; si responde, un preflight rechazado sí cuenta como fallo y revierte.'
+        - 'Limpieza: «quedar fuera» = cuando la última versión que usaba el asset salió de las 5 guardadas (al desplegarse la quinta versión más nueva que ella); el plazo de 7 días cuenta desde ese momento, no desde la subida del asset. Versión = commit distinto.'
+        - El CDN guarda el punto de entrada en el borde (TTL mínimo 300 s) aunque lleve no-cache para el navegador; por eso la invalidación es obligatoria.
+        - 'Página 404 de un preview: el doble sirve la 404.html del mismo PR; en CloudFront la respuesta de error personalizada tiene una sola ruta fija por distribución.'
+        - Los artefactos se manejan como texto (UTF-8); el sitio de ejemplo no tiene binarios.
+        - No se generan source maps (no hay herramienta de errores en el alcance).
+        - Historial de despliegues en meta/<ambiente>/releases.json del bucket del ambiente, fuera del origin_path (site/) que sirve el CDN; artefactos por commit en el bucket versionado de la pila de arranque.
+        - 'Un pendiente reemplazado (concurrency de GitHub con cancel-in-progress: false) se informa como «reemplazado».'
+        - 'Preview «sin cambios»: se mide desde su último despliegue (último push al PR).'
+      aprobada: true
