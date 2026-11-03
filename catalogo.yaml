@@ -4,6 +4,7 @@ blueprints:
   consola-claude-code: consola-claude-code
   estado-por-tareas: estado-por-tareas
   ciclo-de-vida-agentico: ciclo-de-vida-agentico
+  auth: auth
 paquetes:
   base: [estado-por-tareas, consola-claude-code]
   ia: [estado-por-tareas, ciclo-de-vida-agentico]

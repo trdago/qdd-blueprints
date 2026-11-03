@@ -1,0 +1,235 @@
+# Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
+blueprint: auth@1.0.0
+huella: 2ba13df4d97666d1d29634f8d31e817945e7f6ac76cd63ba2ba5a5d780f61005
+fecha: 2026-11-02 20:42
+aprobada: true
+variantes:
+    - nombre: sugerida
+      respuestas:
+        alta_usuarios: invitacion
+        capa_datos: solo_backend
+        clientes: web
+        enlaces_externos: "no"
+        federacion: ninguna
+        fusion_cuentas: "no"
+        identificador: correo_o_rut
+        inactividad_sesion: "30"
+        max_fallos: "5"
+        multi_organizacion: si
+        proveedor_identidad: propio
+        reautenticacion: "5"
+        recuperacion: correo
+        segundo_factor: administradores
+        tras_baja: liberar
+        vida_access: "15"
+        vida_api_key: "365"
+        vida_invitacion: "48"
+        vida_recuperacion: "30"
+      escenarios:
+        - AUTH-C01
+        - AUTH-C02
+        - AUTH-C03
+        - AUTH-C04
+        - AUTH-C05
+        - AUTH-C06
+        - AUTH-C07
+        - AUTH-C10
+        - AUTH-C11
+        - AUTH-C12
+        - AUTH-C13
+        - AUTH-C14
+        - AUTH-C15
+        - AUTH-C16
+        - AUTH-C17
+        - AUTH-C18
+        - AUTH-C19
+        - AUTH-C20
+        - AUTH-C21
+        - AUTH-C22
+        - AUTH-C23
+        - AUTH-C24
+        - AUTH-C25
+        - AUTH-C26
+        - AUTH-C28
+        - AUTH-C29
+        - AUTH-C30
+        - AUTH-C31
+        - AUTH-C32
+        - AUTH-C33
+        - AUTH-S01
+        - AUTH-S03
+        - AUTH-S02
+        - AUTH-I04
+        - AUTH-I05
+        - AUTH-L01
+        - AUTH-P01
+        - AUTH-P02
+        - AUTH-P03
+        - AUTH-P04
+        - AUTH-P05
+        - AUTH-P11
+        - AUTH-P07
+        - AUTH-P08
+        - AUTH-P09
+        - AUTH-P10
+        - AUTH-R01
+        - AUTH-R03
+        - AUTH-I01
+        - AUTH-W01
+        - AUTH-W02
+        - AUTH-B03
+        - AUTH-M01
+        - AUTH-M02
+        - AUTH-M03
+        - AUTH-M04
+        - AUTH-M05
+        - AUTH-T01
+        - AUTH-L03
+      lenguaje: Go
+      comando: go test ./...
+      resultado: pruebas ✅ · escenarios con prueba 59/59
+      supuestos:
+        - 'General: Go 1.24 con la biblioteca estándar; argon2id viene de golang.org/x/crypto v0.45.0, vendorizado en vendor/ para que las pruebas no necesiten red. Base de datos, bitácora, contadores de intentos y correo existen solo en memoria detrás de interfaces (Almacen, Bitacora, Contadores, Correo). La API es HTTP+JSON, y las rutas, los nombres de campos y los códigos de error son míos.'
+        - 'Paso 1: los roles y el catálogo de permisos los inventé: base (rol base global), lector, editor, admin_org (de organización) y soporte (global, el único con comodín). Cada permiso lleva una marca ''administracion'' que decide si exige TOTP. La matriz tiene además los campos rol_base, rol_arranque (soporte) y un ámbito global u organizacion por rol, para que el código nunca escriba nombres de rol. Su ruta se configura en AUTH_MATRIZ; si la matriz falta o no es válida, NuevoServicio devuelve un error.'
+        - 'Paso 2 / AUTH-C20: la lista pública justificada es matriz/rutas_publicas.json. También incluye las rutas que se autentican con una credencial que no es de sesión (endpoint interno, webhook y /ws con ticket), cada una con su justificación. La prueba recorre el registro de rutas del servicio (RegistrarRuta); el 404 genérico para todo lo demás no cuenta como ruta.'
+        - 'Paso 3: elegí EdDSA (Ed25519) como único algoritmo. Agregué tres claims propios: pur (propósito), sid (sesión) y act (quién suplanta). Los tokens de recuperación, activación, verificación y confirmación y los tickets de tiempo real son opacos, no JWT: 128 bits aleatorios guardados como HMAC con el propósito incluido. Por eso, en AUTH-C14, un access token enviado para restablecer responde 400 simplemente porque no existe como token de recuperación; además se prueba que un JWT de otro propósito firmado con la llave de access da 401. La tolerancia de 60 s también se aplica a exp.'
+        - 'Paso 3 / AUTH-C17: rotar deja la llave anterior verificando hasta ahora+15 min+60 s; retirarla la rechaza de inmediato, y ambas cosas se auditan con fecha. Las llaves llegan por configuración (AUTH_LLAVE_ACCESS, AUTH_LLAVES_ANTERIORES con formato kid:publica:hasta) y por los métodos RotarLlaveAccess y RetirarLlaveAccess. No hay KMS ni endpoint de rotación.'
+        - 'Llaves por propósito: firma de access (Ed25519), HMAC para tokens de un solo uso, cifrado AES-256-GCM para los secretos TOTP, HMAC de seudónimos (logs, auditoría y claves de contadores), clave de servicio y secreto de webhook. Todas son obligatorias, de al menos 32 bytes y distintas entre sí. No creé la llave de ''capa de datos'' porque capa_datos=solo_backend y no se emiten tokens para esa capa.'
+        - 'Paso 4 / AUTH-C11: ''no escucha peticiones'' se verifica comprobando que la función de arranque devuelve un error sin haber llamado a listen. Los secretos no tienen valor por defecto; solo AUTH_DIRECCION lo tiene (:8080).'
+        - 'Paso 4 / AUTH-C18: el CI se representa con un escáner propio (cmd/escaner) y un workflow .github/workflows/ci.yml que lo corre. Las reglas son inventadas: archivos .env y .env.* (salvo .env.example), *.pem y *.key, BEGIN PRIVATE KEY, AKIA..., URLs con usuario:clave, asignaciones literales a password/secret/token/clave y AUTH_*=valor. Las pruebas no ejecutan GitHub Actions: corren el escáner sobre repositorios temporales y sobre este repositorio, incluido vendor/.'
+        - 'AUTH-C15: la prueba de arquitectura busca, en el código Go que no es de prueba, literales de correo, RUT, UUID y nombres de rol de la matriz. Tiene una excepción justificada: el GUID fijo del protocolo WebSocket.'
+        - 'Paso 5: tomé ''familia de sesiones de ese dispositivo'' como la cadena de refresh de un mismo login: una fila de sesión que guarda los hashes anteriores. Si un refresh se reúsa, se revoca esa sesión, no otras del mismo usuario, porque no hay id de instalación. El refresh se hashea con SHA-256 sin llave porque ya tiene 256 bits. Cada petición consulta la sesión, así que revocarla corta también el access token vigente.'
+        - 'Paso 5: los permisos se guardan como una instantánea en la sesión. Se resuelven al abrirla, al renovar y al completar el TOTP; el token no lleva permisos. Suspender a alguien también revoca todas sus sesiones de inmediato, algo más estricto que AUTH-C05 (''al vencer el access token'').'
+        - 'AUTH-S03: tomé ''usuario a su cargo'' como un miembro de la organización del administrador; para cualquier otro usuario la respuesta es 404.'
+        - 'Paso 6: sin red no pude usar la lista oficial de las 1.000 contraseñas más comunes. Armé una propia de unas 95 contraseñas comunes de 10 o más caracteres (internal/auth/comunes.txt); las de menos de 10 ya se rechazan por largo. ''Contiene el identificador'' revisa la parte local del correo (si tiene 3 o más caracteres), el correo completo, el RUT y su cuerpo, sin distinguir mayúsculas. El largo se mide en runas Unicode.'
+        - 'Paso 6: hay contadores de intentos por cuenta (seudónimo del identificador normalizado, exista o no la cuenta) y por IP. Un login correcto reinicia solo el contador de la cuenta, y los fallos se olvidan tras 24 h sin fallos nuevos. Mientras dura la espera, los intentos no suman fallos ni verifican la contraseña. En recuperación, cada solicitud cuenta contra el mismo umbral, no solo las fallidas. Los códigos y el TOTP llevan un contador por usuario.'
+        - 'AUTH-P05: ''sobreviven a reinicios'' se modela así: el almacenamiento de contadores en memoria lo comparten dos instancias y luego una tercera instancia nueva. Todas usan la misma configuración, porque la llave de seudónimos tiene que ser común. En producción, ese almacenamiento sería Redis o una tabla.'
+        - 'AUTH-P01: comparo la mediana de 4 mediciones por caso y uso IPs distintas para no activar el límite de intentos. El usuario inexistente o sin contraseña calcula un hash ficticio con los mismos parámetros.'
+        - Agregué el estado 'invitado', previo a la activación; la receta solo nombra activo, suspendido y dado de baja. Si la contraseña actual es incorrecta al cambiarla, la respuesta es 400.
+        - '''Debe cambiar la contraseña'': el guardián lo hace cumplir (esa sesión solo puede cambiar la contraseña o cerrar sesiones), pero ningún flujo lo activa, porque los administradores no fijan contraseñas y no hay endpoint para forzarlo.'
+        - 'Paso 6 / AUTH-P10: interpreté ''nada se envía al nuevo mientras no esté verificado'' así: al valor nuevo solo llega su propio enlace de verificación; invitación, recuperación y avisos van al valor vigente. El correo nuevo queda pendiente y no sirve para entrar hasta que se verifica. El administrador cambia el correo con PATCH /api/orgs/{org}/usuarios/{id}, y eso también exige autenticación reciente. Si se invita al correo pendiente de alguien, se trata como una invitación a esa cuenta.'
+        - 'Teléfono: el cambio sigue el mismo flujo que el correo, con el token enviado por el canal de mensajes en memoria porque no hay SMS. Ningún escenario lo prueba.'
+        - 'RUT: cambiar el RUT reemplaza el valor y lo deja sin verificar (no queda pendiente). Solo lo verifica un administrador con identidad.verificar, indicando la fuente, porque un RUT no puede recibir un token de un solo uso.'
+        - 'Paso 7: ''forma de RUT'' es dígitos y puntos, guion opcional y DV (dígito o K). Si el cuerpo tiene ceros iniciales se aceptan y se quitan, y un cuerpo que no queda en 7 u 8 dígitos responde 400. Un correo malformado también da 400 en el login. La solicitud de recuperación responde el mismo 202 aunque el identificador sea inválido.'
+        - 'Paso 8: si se invita un correo que ya pertenece a una cuenta, se le agrega la membresía y se avisa a su correo vigente; la respuesta es 200 con el id, lo que revela que existe, pero solo a un administrador. Activar la cuenta verifica su correo. El enlace usa ''#token='' y su canje es por POST.'
+        - 'Paso 9 / AUTH-W01: no hay navegador headless. Se verifica con análisis estático del cliente web embebido (no usa localStorage, sessionStorage, document.cookie ni indexedDB, y el token vive en una variable), con los atributos de la cookie y comprobando que el refresh no viaje en el cuerpo. El cliente web (web/app.js) es mínimo y no tiene pruebas de interfaz.'
+        - 'Paso 9 / AUTH-W02: CSRF exige la cabecera propia X-CSRF-Proteccion: 1 y un Origin de la lista; si no hay Origin, exige Sec-Fetch-Site: same-origin, y sin ninguno de los dos responde 403. El logout se autentica con Bearer, no acepta cookie, y borra la cookie de refresh.'
+        - 'Paso 10 / AUTH-B03: tomé como ''bundle'' los archivos de web/ y lo que se sirve en /, /static/app.js y /matriz.json. Se buscan patrones de credenciales de base o de tiempo real y los valores de los secretos de la configuración de prueba.'
+        - 'Paso 11: las organizaciones y los ''recursos'' de ejemplo se crean directamente en el almacén; no hay endpoint de alta de organizaciones y las reglas de negocio quedan fuera de alcance. Una persona sin membresía en la organización recibe 404; un miembro sin el permiso, 403; una API key fuera de su organización o de sus permisos, 403 (como pide AUTH-C25).'
+        - 'Paso 12: TOTP según RFC 6238 (SHA-1, 30 s, 6 dígitos, ±1 paso, sin reusar un paso). La inscripción tiene dos pasos. Los permisos de administración llegan a la sesión cuando se verifica el TOTP en POST /api/sesion/segundo-factor, no en el login. El rol con comodín también exige TOTP.'
+        - 'Paso 13 / AUTH-S02: las acciones sensibles son cambiar el propio identificador, crear una API key, asignar roles con permisos de administración, borrar la cuenta y cambiar el correo de otra persona. Aceptan una de tres pruebas: un login con contraseña o TOTP de los últimos 5 min (renovar no cuenta), un código TOTP, o un código de confirmación de 6 dígitos enviado por correo y ligado con HMAC a usuario, acción y parámetros canónicos. Los nombres de las acciones y de sus parámetros son míos.'
+        - 'Paso 14 / AUTH-I04 / AUTH-I05: el beneficio es una regla de negocio inyectada (beneficio → lista de RUT con derecho) y exige que el RUT esté verificado. El perfil editable es solo nombre, preferencias y avatar; cualquier otro campo responde 400 y no cambia nada.'
+        - 'Paso 15 / AUTH-C12: las API keys tienen el formato qak_<uuid>.<secreto de 256 bits> y viajan en ''Authorization: ApiKey ...''. Se guarda el SHA-256 del secreto. La vigencia la elige quien la crea, entre 1 y 365 días. Sus permisos deben estar entre los del creador en esa organización y nunca incluyen apikeys.*. Una key solo actúa en rutas de su organización, y cada uso se audita.'
+        - 'Paso 15 / AUTH-C23: la credencial de servicio va en la cabecera X-Clave-Servicio. El webhook va firmado con HMAC-SHA256 en la forma ''t=..,v1=..'', con 5 min de tolerancia; el formato es inventado.'
+        - 'Paso 15 / AUTH-C24: escribí un WebSocket mínimo con la biblioteca estándar (solo handshake y marcos del servidor). Supuse que el ticket de un solo uso de 30 s puede ir en la URL (?ticket=), a diferencia de los tokens; los clientes que no son navegador también pueden usar Authorization: Bearer. El permiso se vuelve a revisar en cada entrega. No implementé el canal público de ''hubo un cambio''.'
+        - 'Paso 16 / AUTH-C26 / AUTH-C28: un preflight desde un origen no listado responde 403 sin cabeceras CORS, y una configuración con ''*'' o ''null'' no arranca. La IP del cliente es el salto más a la derecha de X-Forwarded-For que no sea un proxy de confianza; sin proxy de confianza se usa la IP de la conexión (RemoteAddr).'
+        - 'Paso 17 / AUTH-L01: ''desde web y app'' es el mismo endpoint DELETE /api/cuenta; la cabecera X-Cliente solo sirve para registrar el canal en la auditoría. Anonimizar significa borrar los campos personales. La baja también revoca las sesiones, las API keys creadas por la persona, sus membresías y sus tokens de un solo uso.'
+        - 'Paso 18 / AUTH-L03: el índice único de correo y RUT excluye las cuentas dadas de baja. La cuenta nueva se crea por invitación, porque no hay registro abierto (alta_usuarios=invitacion).'
+        - 'Paso 19 / AUTH-C30: la bitácora en memoria es de solo agregar, con una cadena de hashes, y entrega copias. Modificar y Borrar existen para representar al rol del backend y siempre devuelven ErrAuditoriaInmutable. El esquema SQL de referencia (db/schema.sql) solo otorga INSERT y SELECT, pero no hay base real.'
+        - 'Paso 19: tomé ''misma transacción'' así: si registrar falla, la petición aborta con un 500 genérico. La bitácora rechaza los campos con nombres de secreto, los valores con ''@'' y los actores que no sean UUID. Los eventos sin persona identificada se atribuyen a un id de proceso generado al arrancar. Los datos personales se seudonimizan con HMAC.'
+        - 'AUTH-C31: la suplantación es una sesión aparte de 30 min, sin refresh, de solo lectura por defecto y sin acciones sensibles. Usa el claim act con el id del soporte; la auditoría registra al soporte como actor y a la persona como sujeto.'
+        - 'AUTH-C21: GenerarRestriccionRoles deriva la restricción de la matriz. db/schema.sql lo escribí a mano con ese mismo resultado (no hay un generador del archivo), y la prueba los compara. El almacén en memoria rechaza los roles que no están en la matriz.'
+        - 'AUTH-C33: el diagnóstico está en /debug/estado y exige sistema.diagnostico; pprof no se registra. Los errores de la base y los pánicos se escriben solo en el log del servidor; el cliente recibe {error: error_interno}.'
+        - 'Pruebas: además de las 59 de escenarios hay 2 propias: el rehash de un hash débil y el arranque completo que escucha. Usan un reloj falso para los vencimientos.'
+      aprobada: true
+    - nombre: adaptada
+      respuestas:
+        capa_datos: rls_directo
+        clientes: web_y_movil
+        enlaces_externos: si
+        fusion_cuentas: autenticada
+        inactividad_sesion: "7"
+        multi_organizacion: "no"
+        proveedor_identidad: cognito
+        reautenticacion: "15"
+        segundo_factor: nadie
+        sesiones_dispositivo: si
+        tras_baja: reservar
+        vida_access: "5"
+        vida_api_key: "90"
+      escenarios:
+        - AUTH-C01
+        - AUTH-C02
+        - AUTH-C03
+        - AUTH-C04
+        - AUTH-C05
+        - AUTH-C06
+        - AUTH-C07
+        - AUTH-C10
+        - AUTH-C11
+        - AUTH-C12
+        - AUTH-C13
+        - AUTH-C14
+        - AUTH-C15
+        - AUTH-C16
+        - AUTH-C17
+        - AUTH-C18
+        - AUTH-C19
+        - AUTH-C20
+        - AUTH-C21
+        - AUTH-C22
+        - AUTH-C23
+        - AUTH-C24
+        - AUTH-C25
+        - AUTH-C26
+        - AUTH-C28
+        - AUTH-C29
+        - AUTH-C30
+        - AUTH-C31
+        - AUTH-C32
+        - AUTH-C33
+        - AUTH-S01
+        - AUTH-S03
+        - AUTH-S02
+        - AUTH-I04
+        - AUTH-I05
+        - AUTH-L01
+        - AUTH-D01
+        - AUTH-D03
+        - AUTH-W01
+        - AUTH-W02
+        - AUTH-MV1
+        - AUTH-V01
+        - AUTH-V02
+        - AUTH-B01
+        - AUTH-B02
+        - AUTH-B04
+        - AUTH-L04
+        - AUTH-L02
+        - AUTH-E01
+        - AUTH-E02
+      lenguaje: TypeScript (Deno 2, WebCrypto, sin dependencias externas)
+      comando: deno test -A
+      resultado: pruebas ✅ · escenarios con prueba 50/50
+      supuestos:
+        - 'General: los servicios externos se simulan en memoria detrás de interfaces: Cognito y su JWKS (llaves RSA generadas en las pruebas), la base con sus políticas por fila y permisos por columna (src/bd.ts, src/capa_datos.ts), el canal de tiempo real, Keychain/Keystore, el navegador (localStorage, sessionStorage, cookies), la mensajería y la API de administración de Cognito. bd/esquema.sql y .github/workflows/ci.yml son de referencia: no se ejecutan contra Postgres ni GitHub reales.'
+        - 'General: la receta no fija rutas, nombres de cabeceras, variables de entorno, formatos ni códigos HTTP fuera de los escenarios; todos son inventados (p. ej. POST /auth/canje, POST /auth/renovar, X-Clave-Servicio, X-Clave-App, X-Firma, AUTH_LLAVE_ACCESS_JWK).'
+        - 'Paso 1: matriz en JSON (matriz/roles.json) con roles inventados: usuario (rol base), invitado_dispositivo, editor, admin y soporte (único con comodín), más roles de tipo sistema para la credencial de servicio interno y el emisor de webhooks, para que también esas rutas exijan un permiso de la matriz. Permisos efectivos = rol + rol base; un rol desconocido no tiene ninguno (ni siquiera los del rol base).'
+        - 'Paso 1 / AUTH-C21: la restricción de la base se compara contra la base en memoria y contra bd/esquema.sql; solo los roles de tipo persona entran en la restricción de usuarios.rol.'
+        - 'Paso 2 / AUTH-C20: la lista pública justificada es matriz/lista_publica.json (justificación de al menos 20 caracteres); además del test, el servicio no arranca si el inventario falla. Las peticiones OPTIONS (preflight CORS) se responden antes del router.'
+        - 'Paso 3: algoritmos elegidos: ES256 para access y tokens de un solo uso, HS256 para la capa de datos (estilo Supabase), RS256 fijado para Cognito. El propósito va en el claim ''pur''; el access lleva además ''sid'' (id de sesión). La tolerancia de 60 s se aplica a exp, nbf e iat. Al rotar, la llave saliente solo verifica durante la vida máxima del token + 60 s; retirarPorFiltracion la invalida de inmediato y registra la fecha (sin endpoint, es una operación de administración).'
+        - 'Paso 3 / AUTH-C14: la receta pide tokens de un solo uso ''aleatorios de 128 bits'' y a la vez que el token de recuperación sea rechazado como Bearer (lo que sugiere un JWT). Supuse un JWT de propósito ''recuperacion'' firmado con la llave de un solo uso, cuyo jti son 128 bits aleatorios guardados hasheados, de un solo uso e invalidados al emitir otro. Restablecer con un token ajeno responde 400.'
+        - 'Paso 3 / recuperación: con Cognito como proveedor, la receta no dice quién gestiona contraseñas; supuse que el proyecto emite el enlace y aplica el cambio con la API de administración de Cognito (AdminSetUserPassword simulada) y revoca todas las sesiones.'
+        - 'Paso 4 / AUTH-C11: secretos obligatorios por variables de entorno (JWK EC P-256 para access y un solo uso; ≥256 bits en base64url para datos, reserva y webhook; claves de servicio y de app); el arranque también falla si dos propósitos comparten secreto. ''No escucha'' se verifica con una función serve inyectada que nunca se llama y ejecutando src/main.ts sin entorno (sale con código distinto de 0).'
+        - 'Paso 4 / AUTH-C18: no hay CI real disponible; el CI se representa con ci/escanear_secretos.ts (escáner propio, sin gitleaks) que la prueba ejecuta como subproceso sobre un repositorio temporal. Reglas heurísticas: archivos .env (salvo .example), llaves PEM privadas, JWK privados, access keys AKIA/ASIA, asignaciones literales de 12+ caracteres a password/secret/clave/token/api_key y URLs con credenciales.'
+        - 'AUTH-C15: la prueba de arquitectura es heurística y más estricta que la receta: cualquier literal de correo, RUT o UUID dentro de src/ falla, se compare o no con la identidad. El primer administrador se crea con arrancarPrimerAdministrador (token de arranque hasheado, un solo uso, auditado), invocado por un operador, no por una ruta.'
+        - 'Paso 5 / AUTH-C03: ''familia de sesiones de ese dispositivo'' = todas las sesiones del mismo usuario con el mismo id de dispositivo que envía el cliente al canjear (si no lo envía, cada sesión es su propia familia).'
+        - 'Paso 5: los permisos resueltos al abrir y en cada renovación se guardan como instantánea en la sesión del servidor (el token no los trae); cada petición consulta la sesión, por lo que una revocación corta de inmediato. Suspender no revoca sesiones: el access vigente vale hasta vencer (≤5 min) y la renovación falla. La sesión no tiene vencimiento absoluto, solo 7 días sin uso.'
+        - 'AUTH-S03: con multi_organizacion=no, ''usuario a su cargo'' se interpretó como un usuario cuyos permisos efectivos el administrador cubre (no puede actuar sobre soporte). Se agregó el permiso sesiones.ver_usuarios para que el administrador vea esas sesiones.'
+        - 'Paso 6: se supone que el access token de Cognito trae email, email_verified y custom:run (agregados por un trigger pre-token-generation; por defecto Cognito no los pone en el access token). El primer canje registra al usuario (correo verificado obligatorio); no se vincula por correo con una cuenta existente de otro sub (se rechaza). El RUN que viene de Cognito se guarda como no verificado. Con un RUN distinto en el cuerpo (AUTH-D03) se audita la diferencia con los valores enmascarados.'
+        - 'Paso 7: cookie __Host-refresh (HttpOnly, Secure, SameSite=Strict). CSRF: Origin en la lista permitida (o, sin Origin, Sec-Fetch-Site same-origin) y la cabecera propia X-Requested-With: qdd. Solo la renovación acepta cookies. AUTH-W01 se prueba con un cliente web simulado y almacenamientos en memoria, no con un navegador real.'
+        - 'Paso 8 / AUTH-MV1: no hay app real; se prueba un cliente móvil que recibe por inyección un AlmacenSeguro (Keychain/Keystore simulado) y almacenes inseguros (preferencias, base local, archivos) que luego se inspeccionan.'
+        - 'Paso 9: cada POST /dispositivo/sesion crea un usuario anónimo nuevo (el id de instalación no es credencial y no reabre sesiones anteriores); su rol invitado_dispositivo no incluye el rol base. Pasa a una cuenta solo con POST /dispositivo/vincular más un access token de Cognito de esa cuenta; se revocan las sesiones del anónimo y se copian sus preferencias. Para V02 no se encontró en la receta qué entrega la clave de app sola: se responde 400 sin id de instalación y, con él, solo una sesión anónima sin permisos sobre datos.'
+        - 'Paso 10: el token de datos es HS256 con iss ''<producto>:<ambiente>'', aud y role ''authenticated'', 5 min y propósito ''datos''; la capa rechaza service_role. Columnas que el cliente puede escribir directo: nombre, preferencias y avatar; RUT y teléfono solo por la API, para que no se salten la anulación de la verificación.'
+        - 'Paso 11 / AUTH-S02: con segundo_factor=nadie solo queda la autenticación reciente (≤15 min), que se renueva con POST /auth/reautenticar y un access token de Cognito con auth_time de hace ≤5 min. El código de confirmación por mensaje se usa en el cambio de correo (se envía al correo nuevo) además de la autenticación reciente. Acciones sensibles implementadas: cambiar correo, cambiar teléfono, crear API keys, asignar cualquier rol, borrar la cuenta y fusionar.'
+        - 'Paso 12: beneficio de ejemplo ''descuento'' según un padrón inyectado; la verificación del RUT la marca un endpoint administrativo con la fuente declarada (simula la integración con un registro oficial). AUTH-I05: los campos no permitidos se rechazan con 400 (no se ignoran).'
+        - 'Paso 13: API key con formato qk_<16 hex>_<secreto>, enviada como Bearer. Una key válida en una ruta que no admite keys responde 403 auditado (no 401). El alcance de organización se comprueba con el parámetro :org de la ruta (una sola organización configurada). El webhook se verifica con HMAC-SHA256 en el formato ''t=..,v1=..'' con 5 min de tolerancia. El tiempo real usa ticket de un solo uso de 30 s por query (la opción cookie no se implementó); la apertura del WebSocket se simula con GET /ws que responde 200 con el id de conexión. Quién es dueño de un dato está fuera de alcance: solo se filtra por el permiso documentos.ver.'
+        - 'Paso 14: IP = primer salto no confiable de X-Forwarded-For desde la derecha, solo si la conexión viene de un proxy de confianza. Límite inventado: 30 peticiones por minuto por IP en canje, recuperación y sesión de dispositivo.'
+        - 'Paso 15: acciones de enlace ''ver'' y ''subir'' (solo ''subir'' escribe y es de un solo uso), vencimiento máximo de 7 días, el secreto va tras # y se canjea con POST /enlaces/canjear. Responde 404 si no existe y 410 si se usó, venció o fue revocado. No se construyó la página del enlace: Referrer-Policy no-referrer y X-Robots-Tag noindex van en la respuesta del canje. El actor de auditoría de un enlace es el id del enlace.'
+        - 'Paso 16 / AUTH-L01: la baja anonimiza nombre, correo, RUT, teléfono, avatar, preferencias y beneficios, revoca sesiones y API keys y desvincula las identidades de Cognito (no borra el usuario en Cognito). Es el mismo endpoint para web y app (DELETE /cuenta con autenticación reciente).'
+        - 'Paso 17 / AUTH-L04: el hash es HMAC-SHA256 con una llave propia de reserva sobre el correo en minúsculas (y el RUT normalizado). Cualquier rechazo de alta o invitación responde lo mismo: 422 {"error":"registro_rechazado"}.'
+        - 'Paso 18 / AUTH-L02: ''autenticada en esa operación'' = access token de Cognito de la cuenta absorbida con auth_time de hace ≤5 min, más autenticación reciente de la principal. Se guarda una instantánea de la cuenta absorbida; solo el soporte (cuentas.deshacer_fusion) puede deshacer.'
+        - 'Paso 19: la auditoría en memoria es inmutable (registros congelados; actualizar y borrar lanzan error para cualquier rol, incluido backend), lo que representa el REVOKE más el trigger de bd/esquema.sql. Los datos personales se enmascaran (no se hashean) en la auditoría y en los logs; los secretos se omiten por nombre de campo y por patrón (JWT, API keys). Los eventos sin persona se atribuyen a un id de proceso configurado (AUTH_ID_PROCESO); el servicio interno y el webhook tienen ids propios configurados.'
+        - 'AUTH-C31: la suplantación dura como máximo 30 min, es de solo lectura salvo escritura explícita y no se renueva; como su access token dura 5 min, en la práctica cada suplantación se limita a 5 min o a los minutos pedidos, lo que ocurra primero.'
+        - 'Escenarios: la numeración tiene huecos (no existen AUTH-C08, C09, C27, D02, B03, L03, I01-I03, S04+); todos los escenarios citados en los pasos están definidos y viceversa.'
+      aprobada: true

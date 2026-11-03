@@ -1,0 +1,1117 @@
+# Blueprint QDD: usuarios, roles, permisos y acceso.
+# Cómo se identifica a una persona o a un sistema, cómo se le da acceso y cómo se decide qué puede hacer. Destilado de
+# varios productos en producción (backends propios con JWT, proveedores delegados, apps móviles y paneles web) y de los
+# fallos de seguridad que se repitieron en ellos. Matriz de permisos y validación de RUT de ejemplo en referencias/.
+#
+#   qdd blueprint add auth
+#   qdd blueprint apply auth
+#   qdd modules approve auth
+id: auth
+nombre: Usuarios, roles, permisos y acceso
+version: 1.0.0
+requiere_qdd: 2.8.0
+licencia: MIT
+descripcion: >
+  La identidad (quién eres) y la autorización (qué puedes hacer) son capas separadas: el token solo prueba identidad y
+  los permisos se resuelven siempre en el backend contra una matriz versionada de roles y permisos. Cubre login,
+  sesiones, recuperación, alta y baja de cuentas, organizaciones, segundo factor, clientes de sistema, tokens para una
+  capa de datos o de tiempo real, sesiones de dispositivo, enlaces para terceros y la auditoría de seguridad.
+
+alcance:
+  incluye:
+    - "Identidad: login, sesiones, renovación, cierre, recuperación, alta, baja y fusión de cuentas"
+    - "Autorización: matriz de roles y permisos, organizaciones y membresías, segundo factor"
+    - "Clientes de sistema (API keys), llamadas entre servicios, webhooks y tiempo real"
+    - "Tokens para una capa de datos o de tiempo real con políticas por fila (RLS)"
+    - "Sesiones de dispositivo y enlaces de capacidad para terceros sin cuenta"
+    - "Auditoría de eventos de seguridad, manejo de secretos y rotación de llaves"
+  excluye:
+    - "El diseño de las pantallas de login, registro y recuperación"
+    - "Ser proveedor de identidad para otros (servidor OAuth u OIDC propio)"
+    - "Las reglas de negocio de cada recurso (quién es dueño de un dato, horarios, cupos)"
+    - "Planes, facturación y suscripciones"
+
+vocabulario:
+  - termino: usuario
+    definicion: >
+      Persona que se autentica. Tiene un id interno inmutable y no adivinable (nunca el correo ni el RUT como llave), un
+      estado (activo, suspendido o dado de baja) y credenciales o identidades federadas asociadas.
+  - termino: perfil
+    definicion: >
+      Datos de la persona (nombre, RUT, teléfono, preferencias, avatar). El perfil no otorga permisos ni beneficios.
+  - termino: atributo verificado
+    definicion: >
+      Dato de identidad (correo, teléfono, RUT) con registro de si está verificado, por qué fuente y cuándo.
+  - termino: permiso
+    definicion: >
+      Acción atómica sobre un recurso con la forma recurso.accion (p. ej. reservas.crear). Es lo único que el código
+      consulta para autorizar.
+  - termino: rol
+    definicion: Conjunto nombrado de permisos. Se asigna a usuarios; el código nunca compara su nombre.
+  - termino: matriz de roles y permisos
+    definicion: >
+      Archivo versionado en el repositorio, fuente única de qué permisos tiene cada rol. El backend la hace cumplir; el
+      frontend solo la usa para mostrar u ocultar.
+  - termino: organización
+    definicion: >
+      Tenant (empresa, club, municipio, sucursal) dentro del cual un usuario tiene roles mediante una membresía.
+  - termino: sesión
+    definicion: >
+      Registro en el servidor de un inicio de sesión (dispositivo, IP, fecha, último uso), dueño del refresh token.
+      Revocarla corta el acceso.
+  - termino: cliente de sistema
+    definicion: Bot, integración o servicio que llama a la API con una API key propia, nunca con la cuenta de una persona.
+  - termino: capa de datos
+    definicion: >
+      Base de datos o servicio de tiempo real al que los clientes llegan directo, autorizado por políticas por fila que
+      leen el token (p. ej. PostgREST o Realtime con RLS).
+  - termino: sesión de dispositivo
+    definicion: Sesión de una app sin cuenta todavía, ligada a una instalación; puede pasar a una cuenta al autenticarse.
+  - termino: enlace de capacidad
+    definicion: >
+      Enlace con un secreto aleatorio que da a un tercero sin cuenta una acción sobre un recurso (ver, subir, firmar).
+
+parametros:
+  - id: vida_access
+    pregunta: ¿Cuántos minutos dura un access token?
+    ayuda: Más corto, un cambio de rol o una suspensión aplica antes; más largo, menos renovaciones.
+    tipo: numero
+    por_defecto: "15"
+    ejemplos: ["5", "15"]
+  - id: reautenticacion
+    pregunta: ¿Cuántos minutos cuenta como autenticación reciente para una acción sensible?
+    ayuda: Pasado ese tiempo, la acción pide de nuevo la contraseña o el segundo factor.
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["5", "15"]
+  - id: vida_api_key
+    pregunta: ¿Cuántos días puede durar como máximo una API key?
+    ayuda: Al vencer hay que emitir otra; más corto limita el daño de una key filtrada.
+    tipo: numero
+    por_defecto: "365"
+    ejemplos: ["90", "365"]
+  - id: inactividad_sesion
+    pregunta: ¿Tras cuántos días sin uso vence una sesión?
+    ayuda: Una app que se abre poco necesita más días; un panel administrativo, menos.
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["7", "30", "90"]
+  - id: vida_recuperacion
+    si: {proveedor_identidad: propio}
+    pregunta: ¿Cuántos minutos vale un enlace de recuperación de contraseña?
+    tipo: numero
+    por_defecto: "30"
+    ejemplos: ["15", "30"]
+  - id: max_fallos
+    si: {proveedor_identidad: propio}
+    pregunta: ¿Cuántos intentos fallidos seguidos bloquean temporalmente una cuenta o una IP?
+    ayuda: El bloqueo crece en forma exponencial con cada nueva serie de fallos.
+    tipo: numero
+    por_defecto: "5"
+    ejemplos: ["5", "10"]
+  - id: vida_invitacion
+    si: {alta_usuarios: [invitacion, ambos]}
+    pregunta: ¿Cuántas horas vale un enlace de invitación?
+    tipo: numero
+    por_defecto: "48"
+    ejemplos: ["24", "48", "72"]
+
+constantes:
+  - id: largo_min_clave
+    valor: 10 caracteres
+    por_que: con largo y sin reglas de composición, la contraseña resiste fuerza bruta sin que la gente la anote
+  - id: largo_max_clave
+    valor: 64 caracteres
+    por_que: admite frases largas y gestores de contraseñas sin abrir la puerta a hashes lentos con entradas enormes
+  - id: claves_comunes
+    valor: las 1.000 más comunes
+    por_que: son las que prueba primero cualquier ataque de diccionario; se toman de una lista pública mantenida
+  - id: espera_base
+    valor: 1 min
+    por_que: frena la fuerza bruta desde el primer bloqueo sin castigar mucho a quien se equivocó
+  - id: espera_tope
+    valor: 1 h
+    por_que: a ese ritmo un ataque no avanza y una persona legítima no queda fuera un día entero
+  - id: hash_clave
+    valor: argon2id (m=64 MiB, t=3, p=1) o bcrypt costo ≥ 12
+    por_que: lo bastante lento para frenar el descifrado fuera de línea y lo bastante rápido para un login
+  - id: diferencia_login
+    valor: 50 ms
+    por_que: bajo ese margen el tiempo de respuesta no distingue una cuenta que existe de una que no
+  - id: entropia_token
+    valor: 128 bits
+    por_que: un secreto aleatorio de ese tamaño no se adivina ni probando en paralelo
+  - id: entropia_refresh
+    valor: 256 bits
+    por_que: el refresh vive mucho más que un enlace y da acceso completo; también es el mínimo de un secreto HMAC
+  - id: digitos_codigo
+    valor: "6"
+    por_que: cabe en un mensaje y se escribe sin error; con pocos intentos no se adivina
+  - id: vida_codigo
+    valor: 10 min
+    por_que: alcanza para leer el mensaje y escribirlo, y limita la ventana de un código interceptado
+  - id: intentos_codigo
+    valor: 5 intentos
+    por_que: con un código de 6 dígitos deja una probabilidad de acierto despreciable
+  - id: ticket_ws
+    valor: 30 s
+    por_que: alcanza para abrir la conexión y no sirve si queda en un log
+  - id: tolerancia_reloj
+    valor: 60 s
+    por_que: absorbe el desfase normal de los relojes de los teléfonos sin aceptar tokens del futuro
+
+preguntas:
+  - id: proveedor_identidad
+    pregunta: ¿Quién es dueño de la identidad (contraseñas y login)?
+    ayuda: >
+      Con un proveedor delegado el proyecto no guarda contraseñas, pero la autorización (roles y permisos) sigue siendo
+      suya.
+    por_defecto: propio
+    opciones:
+      - valor: propio
+        descripcion: El backend del proyecto autentica y emite sus tokens.
+        depende_de:
+          - "El equipo mantiene hashing, sesiones, recuperación y límites de intentos"
+        decisiones:
+          - "Contraseñas con {{hash_clave}}"
+        invariantes:
+          - "Contraseña de {{largo_min_clave}} a {{largo_max_clave}}, sin reglas de composición; se rechazan {{claves_comunes}} y las que contienen el identificador"
+          - "La contraseña se procesa igual al crearla, cambiarla y entrar: sin recortes ni cambios; un error del hash aborta la operación"
+          - "Un hash con parámetros más débiles que los vigentes se rehace en el siguiente login correcto"
+          - "Un login con usuario inexistente calcula igual un hash ficticio: el tiempo no revela si la cuenta existe"
+          - "El estado del usuario (suspendido, sin acceso, dado de baja) se revisa después de la contraseña y responde el mismo error genérico"
+          - "Tras {{max_fallos}} fallos seguidos por cuenta o por IP, espera de {{espera_base}} que se duplica con cada fallo, hasta {{espera_tope}}"
+          - "El límite de intentos aplica a login, solicitudes de recuperación y verificación de códigos"
+          - "Los contadores de intentos viven en un almacenamiento compartido entre instancias y sobreviven a reinicios"
+          - "Cambiar la contraseña exige la actual y revoca las demás sesiones; restablecerla revoca todas"
+          - "El enlace de recuperación vale {{vida_recuperacion}} min, es de un solo uso y se invalida al pedir otro"
+          - "La solicitud de recuperación responde siempre lo mismo, exista o no la cuenta y aunque falle el envío"
+          - "Ningún administrador fija, ve ni recibe la contraseña de otro: solo dispara una activación o un restablecimiento"
+          - "«Debe cambiar la contraseña» lo hace cumplir el backend: esa sesión solo puede cambiarla"
+          - "Cambiar correo, teléfono o RUT exige autenticación reciente y verificar el valor nuevo con un token de un solo uso"
+          - "Al cambiar un correo o teléfono se avisa al valor anterior; nada se envía al nuevo mientras no esté verificado"
+        conformidad:
+          - id: AUTH-P01
+            titulo: El login no revela si la cuenta existe
+            cuando: se entra con un usuario inexistente y luego con uno existente y contraseña incorrecta
+            entonces: ambas respuestas son idénticas (código y mensaje) y su tiempo difiere en menos de {{diferencia_login}}
+          - id: AUTH-P02
+            titulo: Fuerza bruta bloqueada
+            cuando: se fallan {{max_fallos}} intentos seguidos contra la misma cuenta
+            entonces: el siguiente se rechaza con 429 aunque la contraseña sea correcta, y queda auditado
+          - id: AUTH-P03
+            titulo: Cambio de contraseña protegido
+            dado: un usuario con dos sesiones abiertas
+            cuando: cambia su contraseña desde una de ellas
+            entonces: se le exigió la actual y la otra sesión ya no puede renovar su token
+          - id: AUTH-P04
+            titulo: Contraseña sobre el máximo
+            cuando: se restablece con una contraseña más larga que {{largo_max_clave}}
+            entonces: responde 400 y la contraseña anterior sigue válida
+          - id: AUTH-P05
+            titulo: Contadores compartidos
+            cuando: los fallos llegan repartidos entre dos instancias del servicio
+            entonces: el bloqueo se aplica igual al superar {{max_fallos}}
+          - id: AUTH-P11
+            titulo: Login fallido sin datos personales en claro
+            cuando: se revisan los logs y la auditoría tras un login fallido con un correo inexistente
+            entonces: el correo no aparece en claro
+          - id: AUTH-P07
+            titulo: Recuperación de un solo uso
+            dado: un enlace de recuperación ya usado, vencido o reemplazado por otro más nuevo
+            cuando: se usa
+            entonces: se rechaza; el restablecimiento exitoso había cerrado todas las sesiones
+          - id: AUTH-P08
+            titulo: Recuperación sin enumeración
+            cuando: se pide recuperar una cuenta inexistente, una existente y una existente con el envío fallando
+            entonces: las tres respuestas son idénticas
+          - id: AUTH-P09
+            titulo: El administrador no fija contraseñas
+            cuando: un administrador edita un usuario enviando una contraseña
+            entonces: responde 400, la contraseña no cambia y el intento queda auditado
+          - id: AUTH-P10
+            titulo: Cambio de correo sin toma de cuenta
+            dado: un administrador cambia el correo de un usuario
+            cuando: se pide una invitación o una recuperación para ese usuario
+            entonces: nada llega al correo nuevo mientras no se verifique, y el correo anterior recibe un aviso
+      - valor: cognito
+        descripcion: AWS Cognito (Hosted UI, authorization code + PKCE), con federación si aplica.
+        depende_de:
+          - "Acceso al user pool y a la configuración de su app client"
+          - "Los claims que el proyecto usa (correo verificado, RUN si aplica) vienen en el access token, por atributos del pool o un disparador de pre-generación"
+        decisiones:
+          - "El access token de Cognito se canjea una vez por una sesión propia del proyecto; la API solo acepta los tokens propios"
+          - "El proyecto guarda el sub de Cognito como vínculo con su usuario interno, nunca credenciales"
+        invariantes:
+          - "El canje verifica la firma del token (JWKS, iss, client_id, token_use=access); nunca solo lo decodifica"
+          - "El canje recibe el access token, no el id token"
+          - "El RUN o el correo se toman de los claims verificados, nunca del cuerpo de la petición"
+        conformidad:
+          - id: AUTH-D01
+            titulo: Token sin firma válida rechazado
+            cuando: se canjea un JWT bien formado firmado con otra llave
+            entonces: responde 401 y no se crea ninguna sesión
+          - id: AUTH-D03
+            titulo: Identidad desde el token
+            cuando: el cuerpo de la petición trae un RUN distinto del que dice el token
+            entonces: se usa el del token y la diferencia queda auditada
+      - valor: supabase
+        descripcion: Supabase Auth, con correo o proveedores externos.
+        depende_de:
+          - "Proyecto Supabase con RLS activo en todas las tablas expuestas"
+        decisiones:
+          - "El JWT de Supabase Auth se canjea una vez por una sesión propia del proyecto, verificando su firma, iss y aud"
+        invariantes:
+          - "La app solo lleva la clave publicable; la clave secreta o service_role vive únicamente en el backend"
+          - "RLS activo en todas las tablas expuestas; ninguna política de escritura es siempre verdadera"
+        conformidad:
+          - id: AUTH-D02
+            titulo: La app no puede saltarse RLS
+            cuando: se inspecciona el binario o el bundle de la app
+            entonces: no contiene ninguna llave con rol service_role ni API keys de backend
+
+  - id: identificador
+    pregunta: ¿Con qué inicia sesión una persona?
+    si: {proveedor_identidad: propio}
+    ayuda: El RUT es un identificador, no un secreto; nunca reemplaza la contraseña ni sirve solo para obtener un token.
+    por_defecto: correo_o_rut
+    opciones:
+      - valor: correo
+        descripcion: Solo correo.
+        invariantes:
+          - "El correo se normaliza (sin espacios en los extremos, en minúsculas) al guardar y al buscar, con índice único"
+        conformidad:
+          - id: AUTH-R04
+            titulo: Correo sin distinguir mayúsculas
+            dado: un usuario registrado como Ana@Example.com
+            cuando: entra con ana@example.com
+            entonces: se autentica el mismo usuario
+      - valor: rut
+        descripcion: Solo RUT.
+        invariantes:
+          - "El RUT se normaliza a cuerpo de 7 u 8 dígitos sin puntos ni ceros iniciales, guion y DV en mayúscula, y se valida con módulo 11 en el backend antes de consultar la base"
+          - "Índice único sobre el RUT normalizado"
+        conformidad:
+          - id: AUTH-R01
+            titulo: RUT con dígito verificador inválido
+            cuando: se entra con un RUT cuyo DV no cumple módulo 11
+            entonces: se rechaza con 400 sin consultar la base de datos
+          - id: AUTH-R02
+            titulo: Formatos de RUT equivalentes
+            cuando: se entra con 12.345.678-5, 12345678-5 y 123456785 (RUT ficticio)
+            entonces: los tres resuelven al mismo usuario
+      - valor: correo_o_rut
+        descripcion: Un solo campo que acepta correo o RUT.
+        invariantes:
+          - "Un solo campo: si tiene forma de RUT se valida con módulo 11 y se busca por RUT; si no, se trata como correo"
+          - "El correo se normaliza (sin espacios en los extremos, en minúsculas) al guardar y al buscar, con índice único"
+          - "El RUT se normaliza a cuerpo de 7 u 8 dígitos sin puntos ni ceros iniciales, guion y DV en mayúscula, y se valida con módulo 11 en el backend antes de consultar la base"
+        conformidad:
+          - id: AUTH-R01
+            titulo: RUT con dígito verificador inválido
+            cuando: se entra con un RUT cuyo DV no cumple módulo 11
+            entonces: se rechaza con 400 sin consultar la base de datos
+          - id: AUTH-R03
+            titulo: Correo o RUT llevan al mismo usuario
+            dado: un usuario con correo Ana@Example.com y RUT 12.345.678-5 (ficticio)
+            cuando: entra con ana@example.com y luego con 12345678-5
+            entonces: ambos logins autentican al mismo usuario
+
+  - id: federacion
+    pregunta: ¿Se puede entrar con una cuenta externa?
+    si: {proveedor_identidad: [propio, supabase]}
+    por_defecto: ninguna
+    opciones:
+      - valor: ninguna
+        descripcion: Solo credenciales propias.
+      - valor: google
+        descripcion: Google (OIDC), directo o a través de un proveedor intermediario.
+        depende_de:
+          - "Cliente OAuth de Google configurado por ambiente"
+        invariantes:
+          - "El token del proveedor se verifica en el backend (firma, iss, aud, exp); solo se aceptan los iss y aud esperados"
+          - "Vincular una cuenta externa a un usuario existente exige identidad verificada por el proveedor y confirmación del dueño"
+          - "La vinculación compara el identificador normalizado por igualdad exacta, nunca por patrón"
+        conformidad:
+          - id: AUTH-F01
+            titulo: Sin toma de cuenta por correo
+            dado: un usuario local con correo ana@example.com
+            cuando: alguien entra con un proveedor externo que declara ese correo sin verificarlo
+            entonces: no obtiene acceso a la cuenta existente
+          - id: AUTH-F02
+            titulo: Vinculación exacta
+            dado: un usuario con correo a_b@example.com
+            cuando: llega un token externo válido de aXb@example.com
+            entonces: no se vincula ni obtiene acceso a esa cuenta
+      - valor: clave_unica
+        descripcion: Clave Única del Estado de Chile (OIDC).
+        depende_de:
+          - "Convenio y credenciales de Clave Única para el proyecto"
+        invariantes:
+          - "El RUN se toma del token verificado de Clave Única y se normaliza igual que el RUT local"
+        conformidad:
+          - id: AUTH-F03
+            titulo: RUN desde el token verificado
+            cuando: la petición trae un RUN distinto del que entregó Clave Única
+            entonces: se usa el del token y la diferencia queda auditada
+      - valor: google_y_clave_unica
+        descripcion: Ambas.
+        invariantes:
+          - "El token del proveedor se verifica en el backend (firma, iss, aud, exp); solo se aceptan los iss y aud esperados"
+          - "Vincular una cuenta externa a un usuario existente exige identidad verificada por el proveedor y confirmación del dueño"
+          - "El RUN se toma del token verificado de Clave Única y se normaliza igual que el RUT local"
+        conformidad:
+          - id: AUTH-F01
+            titulo: Sin toma de cuenta por correo
+            dado: un usuario local con correo ana@example.com
+            cuando: alguien entra con un proveedor externo que declara ese correo sin verificarlo
+            entonces: no obtiene acceso a la cuenta existente
+          - id: AUTH-F03
+            titulo: RUN desde el token verificado
+            cuando: la petición trae un RUN distinto del que entregó Clave Única
+            entonces: se usa el del token y la diferencia queda auditada
+
+  - id: alta_usuarios
+    pregunta: ¿Cómo se crean las cuentas?
+    si: {proveedor_identidad: propio}
+    por_defecto: invitacion
+    opciones:
+      - valor: autoregistro
+        descripcion: La persona se registra sola.
+        invariantes:
+          - "El correo se verifica con un enlace de un solo uso antes de habilitar acciones sensibles"
+          - "El registro no revela si el correo o el RUT ya existen: responde igual y avisa al dueño por su canal verificado"
+        conformidad:
+          - id: AUTH-A01
+            titulo: Correo sin verificar
+            dado: una cuenta recién registrada con el correo sin verificar
+            cuando: intenta una acción sensible
+            entonces: se rechaza hasta que verifique el correo
+          - id: AUTH-A02
+            titulo: Registro sin enumeración
+            cuando: se registra un correo que ya existe y luego uno nuevo
+            entonces: las dos respuestas son idénticas y el dueño del existente recibe un aviso
+      - valor: invitacion
+        descripcion: Un administrador invita.
+        invariantes:
+          - "La invitación envía un enlace de activación de un solo uso que vale {{vida_invitacion}} h para que la persona defina su contraseña"
+          - "Ni la respuesta de la API, ni el mensaje, ni la auditoría contienen una contraseña o un código reutilizable"
+        conformidad:
+          - id: AUTH-I01
+            titulo: La invitación no expone credenciales
+            cuando: un administrador invita a un usuario
+            entonces: ni la respuesta de la API, ni el correo, ni la auditoría contienen contraseña o código reutilizable
+      - valor: ambos
+        descripcion: Autoregistro e invitación.
+        invariantes:
+          - "El correo se verifica con un enlace de un solo uso antes de habilitar acciones sensibles"
+          - "El registro no revela si el correo o el RUT ya existen: responde igual y avisa al dueño por su canal verificado"
+          - "La invitación envía un enlace de activación de un solo uso que vale {{vida_invitacion}} h; nunca una contraseña o código en claro"
+        conformidad:
+          - id: AUTH-A01
+            titulo: Correo sin verificar
+            dado: una cuenta recién registrada con el correo sin verificar
+            cuando: intenta una acción sensible
+            entonces: se rechaza hasta que verifique el correo
+          - id: AUTH-A02
+            titulo: Registro sin enumeración
+            cuando: se registra un correo que ya existe y luego uno nuevo
+            entonces: las dos respuestas son idénticas y el dueño del existente recibe un aviso
+          - id: AUTH-I01
+            titulo: La invitación no expone credenciales
+            cuando: un administrador invita a un usuario
+            entonces: ni la respuesta de la API, ni el correo, ni la auditoría contienen contraseña o código reutilizable
+
+  - id: recuperacion
+    pregunta: ¿Por qué canal se recupera la contraseña?
+    si: {proveedor_identidad: propio}
+    ayuda: Depende de qué dato verificado tienen los usuarios y de cuánto cuesta el canal.
+    por_defecto: correo
+    opciones:
+      - valor: correo
+        descripcion: Enlace de recuperación por correo.
+        depende_de:
+          - "Correo verificado de cada usuario"
+          - "Proveedor de correo con SPF, DKIM y DMARC configurados"
+      - valor: whatsapp
+        descripcion: Código por WhatsApp.
+        depende_de:
+          - "Teléfono verificado de cada usuario; sin él no hay recuperación posible"
+          - "Proveedor de WhatsApp y su costo por mensaje frente al volumen esperado"
+      - valor: correo_y_whatsapp
+        descripcion: La persona elige entre los canales que tiene verificados.
+        depende_de:
+          - "Correo o teléfono verificados; solo se ofrece el canal verificado"
+
+  - id: proveedor_whatsapp
+    pregunta: ¿Qué proveedor de WhatsApp se usa?
+    si: {recuperacion: [whatsapp, correo_y_whatsapp]}
+    opciones:
+      - valor: meta_cloud_api
+        descripcion: API oficial de WhatsApp Business (Meta).
+        depende_de:
+          - "Cuenta Business verificada y plantilla de autenticación aprobada"
+      - valor: no_oficial
+        descripcion: Cliente no oficial de WhatsApp Web multidispositivo.
+        depende_de:
+          - "Aceptar el riesgo de que Meta bloquee el número"
+        decisiones:
+          - "WhatsApp no oficial es un canal secundario: siempre existe recuperación por correo o por un administrador"
+
+  - id: clientes
+    pregunta: ¿Qué clientes consumen el login?
+    por_defecto: web
+    opciones:
+      - valor: web
+        descripcion: Frontend web.
+        invariantes:
+          - "El refresh token viaja solo en cookie httpOnly, Secure, SameSite=Strict y con el path del endpoint de renovación"
+          - "El access token vive en memoria, nunca en localStorage ni sessionStorage"
+          - "Todo método que modifica y acepta cookies verifica Origin o Sec-Fetch-Site y una cabecera propia; ningún GET cambia estado"
+        conformidad:
+          - id: AUTH-W01
+            titulo: Sin tokens en el almacenamiento del navegador
+            cuando: se inspecciona localStorage y sessionStorage después de entrar
+            entonces: no hay access ni refresh tokens
+          - id: AUTH-W02
+            titulo: CSRF en la renovación
+            cuando: se hace POST al endpoint de renovación desde otro origen con la cookie
+            entonces: responde 403 y no emite token
+      - valor: movil
+        descripcion: App móvil.
+        invariantes:
+          - "Los tokens se guardan en el almacenamiento seguro del sistema (Keychain o Keystore), nunca en preferencias, bases locales ni archivos planos"
+          - "La sesión de la app se renueva con refresh rotativo; no hay access tokens de larga duración"
+        conformidad:
+          - id: AUTH-MV1
+            titulo: Tokens en almacenamiento seguro
+            cuando: se inspeccionan las preferencias, la base local y los archivos de la app tras entrar
+            entonces: no contienen ningún token
+          - id: AUTH-MV2
+            titulo: Sin tokens de larga duración
+            cuando: se decodifica el access token que recibe la app
+            entonces: vence en {{vida_access}} min o menos
+      - valor: web_y_movil
+        descripcion: Ambos.
+        invariantes:
+          - "Web: refresh solo en cookie httpOnly, Secure, SameSite=Strict; access token en memoria"
+          - "Web: todo método que modifica y acepta cookies verifica Origin o Sec-Fetch-Site y una cabecera propia"
+          - "Móvil: tokens en Keychain o Keystore, nunca en preferencias, bases locales ni archivos planos"
+        conformidad:
+          - id: AUTH-W01
+            titulo: Sin tokens en el almacenamiento del navegador
+            cuando: se inspecciona localStorage y sessionStorage después de entrar
+            entonces: no hay access ni refresh tokens
+          - id: AUTH-W02
+            titulo: CSRF en la renovación
+            cuando: se hace POST al endpoint de renovación desde otro origen con la cookie
+            entonces: responde 403 y no emite token
+          - id: AUTH-MV1
+            titulo: Tokens en almacenamiento seguro
+            cuando: se inspeccionan las preferencias, la base local y los archivos de la app tras entrar
+            entonces: no contienen ningún token
+
+  - id: sesiones_dispositivo
+    pregunta: ¿La app se puede usar sin cuenta, con una sesión de dispositivo?
+    si: {clientes: [movil, web_y_movil]}
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Toda sesión es de una cuenta autenticada.
+      - valor: si
+        descripcion: Sesión de dispositivo anónima que pasa a una cuenta al autenticarse.
+        invariantes:
+          - "El id del dispositivo y la clave de la app no son credenciales: identifican al cliente, nunca autorizan emitir tokens de una cuenta"
+          - "Una sesión de dispositivo solo pasa a una cuenta existente autenticando esa cuenta; nunca por un RUT o correo declarado"
+          - "Las sesiones de dispositivo se renuevan con refresh rotativo, se pueden revocar y no viven más que una sesión normal"
+          - "Toda clave del cliente se compara en tiempo constante y no tiene valor por defecto en el código"
+        conformidad:
+          - id: AUTH-V01
+            titulo: Sin toma de cuenta por dispositivo
+            dado: un usuario existente con RUT 12.345.678-5 (ficticio)
+            cuando: otro dispositivo pide una sesión con la clave de la app y ese RUT
+            entonces: no recibe un token de esa cuenta
+          - id: AUTH-V02
+            titulo: La clave de la app no basta
+            cuando: se extrae la clave del binario de la app y se usa sola
+            entonces: no se obtiene ningún token de usuario ni datos privados
+
+  - id: capa_datos
+    pregunta: ¿Los clientes llegan directo a la base de datos o al servicio de tiempo real?
+    ayuda: Con RLS el cliente lee o escucha sin pasar por la API, pero el token que presenta lo emite tu backend.
+    por_defecto: solo_backend
+    opciones:
+      - valor: solo_backend
+        descripcion: Todo pasa por la API; la llave de la base vive solo en el backend.
+        invariantes:
+          - "Los clientes no reciben ninguna credencial de la base ni del servicio de tiempo real"
+        conformidad:
+          - id: AUTH-B03
+            titulo: Sin credenciales de la base en el cliente
+            cuando: se inspecciona el bundle o el binario de los clientes
+            entonces: no contiene credenciales de la base de datos ni del servicio de tiempo real
+      - valor: rls_directo
+        descripcion: Los clientes leen o escuchan directo con un token para la capa de datos (p. ej. PostgREST o Realtime con RLS).
+        depende_de:
+          - "Políticas por fila en cada tabla y canal expuesto"
+        decisiones:
+          - "Dos tokens: el de la API y otro corto para la capa de datos, con la audiencia y el rol que esa capa exige"
+        invariantes:
+          - "El token de la capa de datos es corto, lleva el rol mínimo y su sub es el id interno que leen las políticas; nunca es service_role"
+          - "El secreto con que se firma ese token no se comparte entre productos ni entre ambientes"
+          - "Los clientes no pueden escribir columnas de autorización (rol, estado, beneficios, hashes): permiso por columna o escritura solo por la API"
+        conformidad:
+          - id: AUTH-B01
+            titulo: Sin escalada escribiendo en la base
+            dado: un usuario común con su token de la capa de datos
+            cuando: actualiza directo su fila poniendo un rol de administrador o un beneficio
+            entonces: se rechaza y su rol no cambia en el siguiente login
+          - id: AUTH-B02
+            titulo: Token de otro producto rechazado
+            cuando: se presenta a la capa de datos un token firmado para otro producto o ambiente
+            entonces: responde 401
+          - id: AUTH-B04
+            titulo: Cada token en su capa
+            cuando: el token de la capa de datos se usa contra la API, o el de la API contra la capa de datos
+            entonces: ambos se rechazan
+
+  - id: multi_organizacion
+    pregunta: ¿Un usuario puede pertenecer a varias organizaciones?
+    ayuda: Clubes, empresas, municipios o sucursales.
+    por_defecto: si
+    opciones:
+      - valor: "no"
+        descripcion: Una sola organización; los roles son globales.
+      - valor: si
+        descripcion: Membresías usuario × organización × roles.
+        invariantes:
+          - "Los roles se asignan por membresía; un permiso se evalúa siempre dentro de la organización del recurso"
+          - "Toda consulta de datos de una organización filtra por ella en el backend o con RLS; el id que envía el cliente se valida contra la membresía"
+          - "El token no aplana los roles de varias organizaciones: el rol se resuelve en el servidor para la organización pedida"
+          - "Ningún valor especial de organización (todas, global) concede acceso a varias; el acceso global sale solo de un permiso"
+          - "No tener membresía es no tener acceso a ninguna organización, nunca acceso global"
+          - "Un recurso de otra organización responde 404 uniforme, sin decir que existe"
+        conformidad:
+          - id: AUTH-M01
+            titulo: Aislamiento entre organizaciones
+            dado: un administrador de la organización A
+            cuando: pide o modifica un recurso de la organización B cambiando el id en la URL
+            entonces: recibe 404 y el intento queda auditado
+          - id: AUTH-M02
+            titulo: Sin membresía, sin acceso
+            dado: un usuario sin membresías
+            cuando: entra y pide la lista de organizaciones o un recurso de cualquiera
+            entonces: no ve ninguna y recibe 404
+          - id: AUTH-M03
+            titulo: Roles por organización
+            dado: un usuario administrador en A y de solo lectura en B
+            cuando: intenta administrar B
+            entonces: recibe 403 o 404 y queda auditado
+          - id: AUTH-M04
+            titulo: Sin valores mágicos
+            cuando: una membresía o una petición trae como organización un valor especial (todas, global)
+            entonces: no da acceso a otras organizaciones
+          - id: AUTH-M05
+            titulo: Solo quien administra asigna roles
+            dado: un miembro de solo lectura de la organización A
+            cuando: asigna un rol de administración en A
+            entonces: recibe 403 y queda auditado
+
+  - id: segundo_factor
+    pregunta: ¿Quién debe usar segundo factor (TOTP)?
+    por_defecto: administradores
+    opciones:
+      - valor: nadie
+        descripcion: Sin segundo factor (solo para sistemas sin datos sensibles).
+      - valor: administradores
+        descripcion: Obligatorio para roles con permisos de administración.
+        invariantes:
+          - "Un rol con permisos de administración de usuarios, roles o sistema exige TOTP; sin él la sesión no recibe esos permisos"
+        conformidad:
+          - id: AUTH-T01
+            titulo: Administración sin segundo factor
+            dado: un usuario con rol de administración que entró sin TOTP
+            cuando: llama a una ruta que exige un permiso de administración
+            entonces: responde 403 y le pide el segundo factor
+      - valor: todos
+        descripcion: Obligatorio para todos.
+        invariantes:
+          - "Toda cuenta exige TOTP desde el primer login"
+        conformidad:
+          - id: AUTH-T02
+            titulo: TOTP desde el primer login
+            dado: una cuenta nueva sin TOTP configurado
+            cuando: entra por primera vez
+            entonces: solo puede configurar TOTP; cualquier otra ruta responde 403
+
+  - id: tras_baja
+    pregunta: ¿Qué pasa con el correo o RUT de una cuenta dada de baja?
+    por_defecto: liberar
+    opciones:
+      - valor: liberar
+        descripcion: Queda libre para una cuenta nueva.
+        invariantes:
+          - "Tras la baja, el identificador queda libre; la cuenta nueva no hereda nada de la anterior"
+        conformidad:
+          - id: AUTH-L03
+            titulo: Identificador liberado
+            dado: una cuenta dada de baja
+            cuando: se crea una cuenta nueva (registro o invitación) con su mismo correo
+            entonces: es otra cuenta, con otro id interno y sin datos ni roles de la anterior
+      - valor: reservar
+        descripcion: Queda reservado (p. ej. para evitar fraude con beneficios).
+        invariantes:
+          - "Tras la baja se guarda solo un hash del identificador para reservarlo; nunca el valor en claro"
+        conformidad:
+          - id: AUTH-L04
+            titulo: Identificador reservado
+            dado: una cuenta dada de baja
+            cuando: se intenta crear una cuenta nueva (registro o invitación) con su mismo correo
+            entonces: no se crea y la respuesta es la misma que para cualquier otro rechazo
+
+  - id: fusion_cuentas
+    pregunta: ¿Se pueden fusionar dos cuentas de la misma persona?
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Cada cuenta es independiente.
+      - valor: autenticada
+        descripcion: Se fusionan autenticando las dos.
+        invariantes:
+          - "Dos cuentas solo se fusionan si se autenticó también la que se absorbe, o por un procedimiento de soporte auditado"
+          - "La fusión queda registrada y se puede deshacer"
+        conformidad:
+          - id: AUTH-L02
+            titulo: Fusión sin autenticar
+            cuando: se pide fusionar con una cuenta que no se autenticó en esa operación
+            entonces: se rechaza y queda auditado
+
+  - id: enlaces_externos
+    pregunta: ¿Terceros sin cuenta reciben enlaces para ver, subir o firmar algo?
+    por_defecto: "no"
+    opciones:
+      - valor: "no"
+        descripcion: Solo usuarios autenticados.
+      - valor: si
+        descripcion: Enlaces de capacidad para externos.
+        invariantes:
+          - "Un enlace para externos lleva {{entropia_token}} aleatorios, se guarda hasheado y vale para un recurso y una acción"
+          - "Todo enlace para externos vence y se puede revocar; si escribe, es de un solo uso; cada uso queda auditado"
+          - "La página del enlace usa Referrer-Policy no-referrer y noindex, y no muestra datos personales de más"
+        conformidad:
+          - id: AUTH-E01
+            titulo: Enlace usado o vencido
+            dado: un enlace de carga ya usado, vencido o revocado
+            cuando: se usa
+            entonces: responde 404 o 410 sin datos
+          - id: AUTH-E02
+            titulo: Enlace con una sola acción
+            dado: un enlace para ver un documento
+            cuando: se usa para modificarlo
+            entonces: se rechaza y queda auditado
+
+pasos:
+  - id: matriz
+    accion: Escribir la matriz de roles y permisos versionada, con un rol base para lo propio, y un único guardián de permiso por ruta que niega por defecto
+    produce: rutas que responden solo con un permiso de la matriz; sin matriz el servicio no arranca
+    verifica: [AUTH-C01, AUTH-C21, AUTH-C32]
+  - id: inventario
+    accion: Recorrer todas las rutas del router en una prueba y exigir a cada una un permiso o un lugar en la lista pública justificada
+    produce: ninguna ruta nueva queda abierta por olvido, incluidas las de diagnóstico
+    verifica: [AUTH-C20, AUTH-C33]
+  - id: tokens
+    accion: Emitir y verificar tokens con algoritmo fijado, kid, propósito, claims obligatorios y tolerancia de reloj; sin token en la URL
+    produce: un verificador que rechaza con 401 todo token ajeno, viejo, malformado o de otro propósito
+    verifica: [AUTH-C02, AUTH-C10, AUTH-C14, AUTH-C16, AUTH-C17, AUTH-C19]
+  - id: secretos
+    accion: Exigir los secretos al arrancar y escanear el repositorio en CI
+    produce: un servicio que no arranca sin llaves y un CI que falla ante una credencial versionada
+    verifica: [AUTH-C11, AUTH-C15, AUTH-C18]
+  - id: sesiones
+    accion: Guardar sesiones propias con refresh rotativo y detección de reúso, resolviendo permisos y estado al abrirlas y en cada renovación
+    produce: cambios de rol, suspensiones y cierres que aplican a tiempo, con cualquier proveedor de identidad
+    verifica: [AUTH-C03, AUTH-C04, AUTH-C05, AUTH-C06, AUTH-C07, AUTH-S01, AUTH-S03]
+  - id: identidad-propia
+    si: {proveedor_identidad: propio}
+    accion: Construir login, límites de intentos, cambio de contraseña, recuperación y cambio de identificador
+    produce: identidad propia que no revela cuentas, resiste fuerza bruta y no deja tomar cuentas
+    verifica: [AUTH-P01, AUTH-P02, AUTH-P03, AUTH-P04, AUTH-P05, AUTH-P07, AUTH-P08, AUTH-P09, AUTH-P10, AUTH-P11]
+  - id: identidad-cognito
+    si: {proveedor_identidad: cognito}
+    accion: Canjear el access token de Cognito, verificado, por una sesión propia y tomar la identidad solo de sus claims
+    produce: una API que no confía en tokens sin firma válida ni en identidades del cuerpo
+    verifica: [AUTH-D01, AUTH-D03]
+  - id: identidad-supabase
+    si: {proveedor_identidad: supabase}
+    accion: Canjear el JWT de Supabase Auth, verificado, por una sesión propia y dejar la clave secreta solo en el servidor
+    produce: clientes que no pueden saltarse RLS
+    verifica: [AUTH-D02]
+  - id: identificador-correo
+    si: {identificador: correo}
+    accion: Normalizar el correo antes de guardarlo y de buscarlo
+    produce: un mismo usuario sin importar mayúsculas ni espacios
+    verifica: [AUTH-R04]
+  - id: identificador-rut
+    si: {identificador: rut}
+    accion: Normalizar y validar el RUT con módulo 11 antes de buscarlo
+    produce: un mismo usuario por cualquier formato válido y 400 para un RUT inválido
+    verifica: [AUTH-R01, AUTH-R02]
+  - id: identificador-correo-o-rut
+    si: {identificador: correo_o_rut}
+    accion: Decidir en un solo campo si es RUT o correo, y normalizar y validar cada uno antes de buscarlo
+    produce: un mismo usuario por su correo o por su RUT y 400 para un RUT inválido
+    verifica: [AUTH-R01, AUTH-R03]
+  - id: federacion-google
+    si: {federacion: google}
+    accion: Verificar el token de Google y vincular cuentas solo con identidad verificada, igualdad exacta y confirmación
+    produce: entrada con Google sin toma de cuentas
+    verifica: [AUTH-F01, AUTH-F02]
+  - id: federacion-clave-unica
+    si: {federacion: clave_unica}
+    accion: Verificar el token de Clave Única y tomar el RUN solo de él
+    produce: entrada con Clave Única con el RUN verificado
+    verifica: [AUTH-F03]
+  - id: federacion-ambas
+    si: {federacion: google_y_clave_unica}
+    accion: Verificar los tokens de Google y de Clave Única y vincular cuentas solo con identidad verificada y confirmación
+    produce: entrada con cuentas externas sin toma de cuentas
+    verifica: [AUTH-F01, AUTH-F03]
+  - id: alta-registro
+    si: {alta_usuarios: [autoregistro, ambos]}
+    accion: Construir el registro con verificación de correo y sin revelar cuentas existentes
+    produce: cuentas nuevas sin enumeración que no hacen acciones sensibles sin verificar el correo
+    verifica: [AUTH-A01, AUTH-A02]
+  - id: alta-invitacion
+    si: {alta_usuarios: [invitacion, ambos]}
+    accion: Construir la invitación con un enlace de activación de un solo uso
+    produce: cuentas activadas por su dueño, sin credenciales en claro en ninguna parte
+    verifica: [AUTH-I01]
+  - id: clientes-web
+    si: {clientes: [web, web_y_movil]}
+    accion: Dejar el refresh en cookie httpOnly, el access token en memoria y CSRF en todo lo que acepta cookies
+    produce: ningún token legible por scripts y ninguna renovación desde otro origen
+    verifica: [AUTH-W01, AUTH-W02]
+  - id: clientes-movil
+    si: {clientes: movil}
+    accion: Guardar los tokens de la app en Keychain o Keystore con access tokens cortos
+    produce: ningún token en almacenamiento legible por otras apps ni de larga duración
+    verifica: [AUTH-MV1, AUTH-MV2]
+  - id: clientes-movil-y-web
+    si: {clientes: web_y_movil}
+    accion: Guardar los tokens de la app en Keychain o Keystore
+    produce: ningún token de la app en almacenamiento legible por otras apps
+    verifica: [AUTH-MV1]
+  - id: dispositivo
+    si: {sesiones_dispositivo: si}
+    accion: Emitir sesiones de dispositivo revocables que solo pasan a una cuenta autenticándola
+    produce: uso sin cuenta que no abre la puerta a cuentas ajenas
+    verifica: [AUTH-V01, AUTH-V02]
+  - id: capa-solo-backend
+    si: {capa_datos: solo_backend}
+    accion: Dejar las credenciales de la base y del tiempo real solo en el servidor
+    produce: clientes sin ninguna credencial de la base
+    verifica: [AUTH-B03]
+  - id: capa-rls
+    si: {capa_datos: rls_directo}
+    accion: Emitir el token corto de la capa de datos con su propia llave y proteger las columnas de autorización
+    produce: políticas por fila que no se saltan y tokens que no sirven fuera de su capa
+    verifica: [AUTH-B01, AUTH-B02, AUTH-B04]
+  - id: organizaciones
+    si: {multi_organizacion: si}
+    accion: Modelar membresías usuario × organización × roles y evaluar cada permiso dentro de la organización del recurso
+    produce: aislamiento entre organizaciones y asignación de roles solo por quien administra
+    verifica: [AUTH-M01, AUTH-M02, AUTH-M03, AUTH-M04, AUTH-M05]
+  - id: segundo-factor-admin
+    si: {segundo_factor: administradores}
+    accion: Exigir TOTP antes de entregar permisos de administración
+    produce: permisos de administración solo con segundo factor
+    verifica: [AUTH-T01]
+  - id: segundo-factor-todos
+    si: {segundo_factor: todos}
+    accion: Exigir configurar TOTP en el primer login y usarlo en cada inicio de sesión
+    produce: ninguna cuenta opera sin segundo factor
+    verifica: [AUTH-T02]
+  - id: acciones-sensibles
+    accion: Pedir autenticación reciente o segundo factor en las acciones sensibles y ligar cada código a su acción y parámetros
+    produce: acciones sensibles que no se ejecutan con una sesión robada vieja ni con un código ajeno
+    verifica: [AUTH-S02]
+  - id: atributos
+    accion: Marcar qué atributos están verificados y sacar del perfil editable todo lo que otorga derechos
+    produce: beneficios y accesos que no se obtienen editando el perfil
+    verifica: [AUTH-I04, AUTH-I05, AUTH-C22]
+  - id: sistemas
+    accion: Dar a bots, servicios, webhooks y tiempo real su propia autenticación con alcance
+    produce: llamadas de máquinas que actúan solo dentro de su alcance y quedan auditadas
+    verifica: [AUTH-C12, AUTH-C23, AUTH-C24, AUTH-C25]
+  - id: borde
+    accion: Configurar CORS con orígenes explícitos y tomar la IP solo de proxies de confianza
+    produce: ni otros sitios ni cabeceras falsas cambian quién llama ni desde dónde
+    verifica: [AUTH-C26, AUTH-C28]
+  - id: enlaces
+    si: {enlaces_externos: si}
+    accion: Emitir enlaces de capacidad hasheados, con una acción, vencimiento y revocación
+    produce: terceros que hacen solo lo que su enlace permite, mientras vale
+    verifica: [AUTH-E01, AUTH-E02]
+  - id: baja
+    accion: Construir la baja de cuenta desde web y app, revocando todo y anonimizando los datos personales
+    produce: cuentas que se borran sin dejar datos personales ni accesos vivos
+    verifica: [AUTH-L01]
+  - id: baja-liberar
+    si: {tras_baja: liberar}
+    accion: Liberar el identificador de una cuenta dada de baja
+    produce: una cuenta nueva con ese identificador que no hereda nada
+    verifica: [AUTH-L03]
+  - id: baja-reservar
+    si: {tras_baja: reservar}
+    accion: Reservar el identificador de una cuenta dada de baja guardando solo su hash
+    produce: ninguna cuenta nueva con ese identificador, sin guardarlo en claro
+    verifica: [AUTH-L04]
+  - id: fusion
+    si: {fusion_cuentas: autenticada}
+    accion: Fusionar dos cuentas solo autenticando ambas, con registro y forma de deshacerlo
+    produce: fusiones que nadie hace sobre una cuenta ajena
+    verifica: [AUTH-L02]
+  - id: auditoria
+    accion: Registrar los eventos de seguridad con un actor real, sin secretos y con datos personales minimizados, en una bitácora inmutable
+    produce: una auditoría confiable que no filtra credenciales
+    verifica: [AUTH-C13, AUTH-C29, AUTH-C30, AUTH-C31]
+
+ficha:
+  nombre: Usuarios, roles, permisos y acceso
+  objetivo_operativo:
+    problema: >
+      Saber quién es cada persona o sistema que usa el producto y permitirle hacer solo lo que su rol permite, dentro de
+      su organización, sin que un error de configuración, una clave incluida en la app o un token robado exponga cuentas
+      o datos.
+    usuarios: >
+      Usuarios finales, administradores de cada organización, el soporte del producto y clientes de sistema (bots,
+      integraciones, servicios).
+    criterio_de_exito: >
+      Todos los escenarios de conformidad pasan como pruebas automatizadas del proyecto y ninguna ruta responde datos
+      sin autenticación y un permiso explícito de la matriz (o un lugar justificado en la lista pública).
+  objetivo_tecnologico:
+    arquitectura: >
+      Capa de identidad (login, sesiones, recuperación, alta y baja) separada de la capa de autorización (matriz de
+      roles y permisos). El access token es un JWT corto que solo prueba identidad; el refresh es opaco, se guarda
+      hasheado en la tabla de sesiones y rota en cada uso. Cada petición pasa por la autenticación y luego por un único
+      guardián de permiso recurso.accion que consulta la matriz versionada. Los clientes de sistema usan API keys
+      propias y los eventos de seguridad van a una bitácora inmutable.
+    decisiones:
+      - "Matriz de roles y permisos en un archivo versionado, compartido por backend y frontend"
+      - "Permisos con forma recurso.accion; el comodín solo para un único rol de soporte del producto"
+      - "Sesión propia del proyecto con cualquier proveedor: access token JWT de {{vida_access}} min y refresh opaco"
+      - "Refresh de {{entropia_refresh}}, guardado hasheado en la sesión y rotado en cada uso; la sesión vence tras {{inactividad_sesion}} días sin uso"
+      - "Los permisos se resuelven en el servidor al abrir la sesión y en cada renovación; el token no los trae"
+      - "Toda persona autenticada tiene un rol base de la matriz con los permisos sobre lo propio (perfil, sesiones, baja)"
+      - "Llaves distintas por propósito: access tokens, capa de datos, tokens de un solo uso, cifrado; nunca comparten secreto"
+      - "Id interno no adivinable (UUID) en tokens y URLs"
+    invariantes:
+      - "Autorización por permiso: el código pregunta por recurso.accion, nunca compara nombres de rol"
+      - "Denegar por defecto: una ruta sin permiso declarado responde 403 sin ejecutar nada; si la matriz no carga, el servicio no arranca"
+      - "Un refresh ya usado que vuelve a llegar revoca toda la familia de sesiones de ese dispositivo"
+      - "El backend siempre hace cumplir los permisos; el frontend solo los usa para mostrar u ocultar"
+      - "Los ids de rol existen solo en la matriz, sin alias; la restricción de la base se deriva de ella; un rol desconocido no tiene permisos"
+      - "Solo un rol, el de soporte del producto, tiene el comodín; si un rol de cliente necesita casi todo, recibe permisos explícitos"
+      - "Nadie puede otorgar un rol con permisos que él mismo no tiene"
+      - "Ningún privilegio se otorga por un correo, RUT o id escrito en el código; el primer administrador se crea con un arranque de un solo uso y auditado"
+      - "JWT con algoritmo fijado en el verificador; alg none y algoritmos inesperados se rechazan"
+      - "Claims obligatorios: iss, aud, sub (id interno), iat, exp, jti y kid en la cabecera"
+      - "Cada token declara su propósito y el verificador exige el esperado: un token de recuperación no sirve como access token"
+      - "Se toleran como máximo {{tolerancia_reloj}} de desfase en exp, nbf e iat; un iat más en el futuro se rechaza"
+      - "Las llaves rotan sin cortar el servicio: la nueva firma y la anterior solo verifica mientras viva un token suyo"
+      - "Una llave filtrada se rota y se registra cuándo; quitarla del código no cuenta como remediación"
+      - "Un token malformado, truncado o una cabecera Bearer vacía responden 401, nunca 500"
+      - "Un cambio de rol o una suspensión aplica a más tardar al vencer el access token, y de inmediato si se revocan sus sesiones"
+      - "Los tokens viajan en la cabecera Authorization o en cookie httpOnly; nunca en la URL"
+      - "Para WebSockets se usa la cookie o un ticket de un solo uso que vale {{ticket_ws}}, emitido por la API"
+      - "El token de un enlace por correo puede ir en el enlace (mejor tras #); la página lo canjea al instante por POST y nunca se registra"
+      - "Cerrar sesión revoca la sesión en el servidor"
+      - "El usuario ve sus sesiones activas (dispositivo, IP aproximada, último uso) y cierra una o todas; el administrador, las de su organización"
+      - "Tokens de un solo uso: aleatorios de {{entropia_token}}, guardados hasheados, de un solo uso e invalidados al emitir otro"
+      - "Códigos por mensaje: {{digitos_codigo}} dígitos, valen {{vida_codigo}} y admiten {{intentos_codigo}}"
+      - "Las acciones sensibles (cambiar correo o teléfono, crear API keys, asignar roles de administración, borrar la cuenta) exigen autenticación de los últimos {{reautenticacion}} min o segundo factor"
+      - "Un código de confirmación queda ligado a la identidad, la acción y sus parámetros exactos"
+      - "Un dato que otorga un beneficio, un precio o un acceso no es parte del perfil editable: lo cambian el servidor o un permiso, con auditoría"
+      - "Un permiso o beneficio que depende de un atributo exige que esté verificado; cambiar el atributo anula la verificación"
+      - "Las respuestas usan una lista explícita de columnas: hashes, códigos y secretos nunca se seleccionan en consultas genéricas"
+      - "Los clientes de sistema usan API keys propias, con prefijo identificable, guardadas hasheadas, revocables y con alcance (organización y permisos)"
+      - "Una API key se muestra una sola vez, vence en {{vida_api_key}} días como máximo, registra su último uso y no puede crear otras keys"
+      - "Los endpoints internos exigen una credencial de servicio comparada en tiempo constante; una clave vacía nunca autoriza"
+      - "Los webhooks verifican la firma del emisor o confirman con él; nunca confían solo en el cuerpo recibido"
+      - "Un mensaje en tiempo real llega solo a conexiones autorizadas para ese dato; un canal público solo avisa que hubo un cambio"
+      - "Los orígenes CORS son una lista explícita por ambiente; nunca se refleja el Origin ni se usa comodín con credenciales"
+      - "La IP del cliente se toma solo de proxies de confianza configurados; de ella dependen los límites y la auditoría"
+      - "Los secretos son obligatorios al arrancar: sin llave de firma el servicio no inicia; prohibidos los valores por defecto en el código"
+      - "El CI escanea código, pruebas y archivos versionados y falla ante llaves privadas, archivos .env o credenciales literales"
+      - "Ningún endpoint de diagnóstico o depuración queda expuesto sin autenticación y permiso"
+      - "Los errores internos (SQL, trazas, rutas) nunca llegan al cliente"
+      - "La persona puede darse de baja desde la web y la app: se revocan sesiones, keys y vínculos y se anonimizan sus datos personales"
+      - "Tras la baja, la auditoría conserva el id interno y ningún dato personal en claro"
+      - "Auditoría de eventos de seguridad (login, bloqueo, recuperación, cambio de contraseña o rol, revocación, uso de API key) con id del actor, IP y fecha"
+      - "La auditoría nunca guarda contraseñas, tokens ni códigos; los datos personales van enmascarados o hasheados"
+      - "El actor de la auditoría es siempre un id real (persona, API key o proceso con id propio), nunca un texto fijo"
+      - "Un evento sin persona identificada (login fallido, solicitud anónima) se atribuye a un proceso con id propio"
+      - "La auditoría se escribe en la misma transacción o en una cola confiable, y ni el rol del backend puede modificarla o borrarla"
+      - "El soporte no usa la sesión de una persona: una suplantación es explícita, temporal, de solo lectura por defecto y lleva actor y sujeto"
+      - "Toda afirmación de seguridad de la documentación tiene una prueba que la verifica"
+
+conformidad:
+  - id: AUTH-C01
+    titulo: Denegar por defecto
+    cuando: se llama a una ruta protegida sin token, con un token vencido o con un token válido sin el permiso requerido
+    entonces: responde 401, 401 y 403 respectivamente, sin datos del recurso
+  - id: AUTH-C02
+    titulo: Algoritmo de firma fijado
+    cuando: se envía un JWT con alg none o con un algoritmo distinto del configurado
+    entonces: se rechaza con 401
+  - id: AUTH-C03
+    titulo: Refresh rotativo con detección de reúso
+    dado: un refresh token ya usado una vez
+    cuando: se intenta usar de nuevo
+    entonces: se rechaza y se revoca toda la familia de sesiones de ese dispositivo
+  - id: AUTH-C04
+    titulo: Logout real
+    cuando: un usuario cierra sesión y luego intenta renovar con la misma sesión
+    entonces: la renovación se rechaza
+  - id: AUTH-C05
+    titulo: Suspensión efectiva
+    dado: un usuario con sesión abierta
+    cuando: un administrador lo suspende
+    entonces: su siguiente renovación falla y, al vencer su access token, ninguna petición prospera
+  - id: AUTH-C06
+    titulo: Cambio de rol efectivo
+    dado: un usuario al que se le quita un permiso
+    cuando: renueva su token
+    entonces: el nuevo access token ya no le da ese permiso
+  - id: AUTH-C07
+    titulo: Sin escalamiento de privilegios
+    dado: un administrador sin el permiso de administrar el sistema
+    cuando: intenta asignarse o asignar a otro el rol de soporte
+    entonces: responde 403 y queda auditado
+  - id: AUTH-C10
+    titulo: Sin tokens en la URL
+    cuando: se envía un access token válido como parámetro de la URL, en la API o al abrir un WebSocket
+    entonces: se ignora y responde 401
+  - id: AUTH-C11
+    titulo: Arranque sin secretos
+    cuando: el servicio arranca sin la llave de firma configurada
+    entonces: termina con error y no escucha peticiones
+  - id: AUTH-C12
+    titulo: Bots con identidad propia
+    cuando: un cliente de sistema llama a la API
+    entonces: se autentica con su API key, actúa solo con su alcance y la auditoría registra la key, no una persona
+  - id: AUTH-C13
+    titulo: Auditoría sin secretos
+    cuando: se revisan los registros tras login, recuperación e invitación
+    entonces: contienen el id interno del actor y ninguna contraseña, token ni código
+  - id: AUTH-C14
+    titulo: Cada token para su propósito
+    dado: un token de recuperación válido
+    cuando: se envía como Bearer a la API
+    entonces: responde 401; y un access token enviado para restablecer la contraseña responde 400
+  - id: AUTH-C15
+    titulo: Sin privilegios escritos en el código
+    cuando: una prueba de arquitectura busca correos, RUT o ids comparados contra la identidad para dar privilegios
+    entonces: no encuentra ninguno
+  - id: AUTH-C16
+    titulo: Token del futuro
+    cuando: llega un token con iat más adelantado que {{tolerancia_reloj}}
+    entonces: responde 401
+  - id: AUTH-C17
+    titulo: Llave retirada
+    dado: una llave de firma retirada
+    cuando: se presenta un token firmado con ella
+    entonces: responde 401
+  - id: AUTH-C18
+    titulo: Secretos fuera del repositorio
+    cuando: se agrega al repositorio un archivo .env, una llave privada o una credencial literal
+    entonces: el CI falla
+  - id: AUTH-C19
+    titulo: Token malformado
+    cuando: se llama a la API o se abre un WebSocket con un token que no es JWT, truncado o con Bearer vacío
+    entonces: responde 401 y el servicio sigue en pie
+  - id: AUTH-C20
+    titulo: Inventario de rutas
+    cuando: se agrega una ruta sin permiso ni lugar en la lista pública
+    entonces: la prueba de rutas falla
+  - id: AUTH-C21
+    titulo: Catálogo de roles único
+    cuando: se compara la restricción de roles de la base con la matriz, y se presenta un rol desconocido
+    entonces: la base y la matriz coinciden, y el rol desconocido no autoriza nada
+  - id: AUTH-C22
+    titulo: Sin credenciales en las respuestas
+    cuando: se cambia el rol de un usuario o se lista usuarios
+    entonces: la respuesta no contiene hashes, códigos ni otros campos de credenciales
+  - id: AUTH-C23
+    titulo: Endpoint interno sin credencial
+    cuando: se llama a un endpoint interno sin clave, con clave vacía o con un webhook sin firma válida
+    entonces: responde 401 y no ejecuta nada
+  - id: AUTH-C24
+    titulo: Tiempo real por permiso
+    dado: dos clientes conectados, uno con permiso sobre un dato y otro sin él
+    cuando: se emite un evento de ese dato
+    entonces: solo lo recibe el que tiene permiso
+  - id: AUTH-C25
+    titulo: API key fuera de su alcance
+    cuando: una API key llama a una ruta o a una organización fuera de su alcance
+    entonces: responde 403 y queda auditado
+  - id: AUTH-C26
+    titulo: CORS explícito
+    cuando: llega una petición con un Origin que no está en la lista
+    entonces: la respuesta no permite ese origen
+  - id: AUTH-C28
+    titulo: IP real
+    cuando: el cliente envía un X-Forwarded-For falso sin pasar por un proxy de confianza
+    entonces: la auditoría y los límites usan la IP real
+  - id: AUTH-C29
+    titulo: Datos personales minimizados en logs
+    cuando: se revisan los logs y la auditoría tras cambiar el rol de un usuario y revocar sus sesiones
+    entonces: su correo, RUT y teléfono no aparecen en claro
+  - id: AUTH-C30
+    titulo: Auditoría inmutable
+    cuando: el rol con que corre el backend intenta modificar o borrar un registro de auditoría
+    entonces: se rechaza
+  - id: AUTH-C31
+    titulo: Suplantación auditada
+    cuando: el soporte suplanta a un usuario y modifica algo
+    entonces: la auditoría registra al soporte como actor y al usuario como sujeto
+  - id: AUTH-C32
+    titulo: Comodín en un solo rol
+    cuando: una prueba revisa la matriz
+    entonces: exactamente un rol tiene el comodín
+  - id: AUTH-C33
+    titulo: Sin diagnóstico ni errores internos expuestos
+    cuando: se piden rutas de diagnóstico sin permiso, una ruta inexistente o una que falla en la base
+    entonces: responden 401, 403 o 404, o un error genérico, sin esquema, SQL, trazas ni configuración
+  - id: AUTH-S01
+    titulo: Cerrar otra sesión
+    dado: un usuario con las sesiones A y B
+    cuando: cierra B desde A
+    entonces: B ya no puede renovarse y A sigue activa
+  - id: AUTH-S03
+    titulo: El administrador cierra sesiones
+    dado: un administrador con permiso para revocar sesiones
+    cuando: cierra las sesiones de un usuario a su cargo
+    entonces: ninguna de esas sesiones puede renovarse y queda auditado
+  - id: AUTH-S02
+    titulo: Confirmación ligada a la acción
+    dado: un código de confirmación emitido para una acción con ciertos parámetros
+    cuando: se usa con otros parámetros, o la acción sensible llega sin autenticación reciente
+    entonces: se rechaza
+  - id: AUTH-I04
+    titulo: Beneficio con atributo verificado
+    dado: un usuario que cambia su RUT por uno con derecho a un beneficio
+    cuando: usa ese beneficio
+    entonces: no lo recibe hasta que el RUT nuevo se verifique
+  - id: AUTH-I05
+    titulo: Beneficios fuera del perfil
+    cuando: el usuario envía un beneficio o un rol al actualizar su perfil
+    entonces: el campo se rechaza o se ignora, y no cambia
+  - id: AUTH-L01
+    titulo: Baja de cuenta
+    cuando: un usuario se da de baja desde la web o la app
+    entonces: sus sesiones dejan de renovarse, su perfil no tiene datos personales y la auditoría no tiene ninguno en claro
+
+referencias:
+  - referencias/matriz-permisos.example.json
+  - referencias/go/rut
