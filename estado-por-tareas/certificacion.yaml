@@ -1,7 +1,7 @@
 # Certificación ciega de 'qdd blueprint certify': cada variante la construyó, solo con la receta, alguien que no vio el original.
-blueprint: estado-por-tareas@2.1.0
-huella: 820d30d344eca44d6cfc5116fd5a2e971f88a4359ef4dee577e92f683be282a1
-fecha: 2026-11-02 04:06
+blueprint: estado-por-tareas@2.2.0
+huella: be1de6e3067e5fdbee3a3e85c40e7311143b0cb88b4f6aaa3614c017d3d7b9e5
+fecha: 2026-11-15 07:15
 aprobada: true
 variantes:
     - nombre: sugerida
@@ -36,30 +36,24 @@ variantes:
         - EPT-K02
         - EPT-K03
         - EPT-K04
-      lenguaje: TypeScript (Node 26 con type stripping nativo, sin dependencias ni compilador)
-      comando: node --test "test/**/*.test.ts"
+      lenguaje: Python 3 (solo biblioteca estándar)
+      comando: python3 -m unittest discover -s tests -t .
       resultado: pruebas ✅ · escenarios con prueba 22/22
       supuestos:
-        - 'Arquitectura: se construyen dos piezas, un modelo en memoria (src/proyecto.ts) que rechaza toda operación inválida sin escribir nada (trabaja sobre una copia y solo la adopta si cumple todas las invariantes) y un lector automático de reportes markdown (src/revisor.ts); las reglas de celda son las mismas para ambos (src/celda.ts).'
-        - 'Tarea en curso, pulso, vida y actividad: no tienen paso ni escenario en la receta y su registro vive fuera del proyecto; no se implementaron.'
-        - 'Tarea: su id es también su nombre en la tabla (sin «|» ni «(»), para que dependencias, afirmaciones y cierres la nombren igual.'
-        - 'Paso 7 / EPT-K02: una celda «sin empezar» se guarda como vacía (null) y se dibuja «❌ sin empezar»; no cuenta como avance al cambiar de ciclo, de modo que puede descartarse sin error.'
-        - 'Paso 2 / EPF-C03: un ⏳ vale si su nota nombra un rol de la lista (base + los del proyecto, sin distinguir mayúsculas) y además dice algo más (qué espera); no se puede detectar un nombre de persona, así que exigir el rol es la regla.'
-        - 'Paso 3 / EPF-C06: la aprobación se reconoce por «aprobado por <rol>» con un rol de la lista; una etapa que la requiere en ✅ sin eso no vale. El proyecto puede sumar etapas que requieren aprobación, no quitar Producción.'
-        - 'Paso 4 / EPT-S01 / EPF-C04: Validación real ✅ exige evidencia, la frase «uso real» en la nota y que su evidencia no sea solo la misma que la de Producción.'
-        - 'Paso 2: la evidencia de commit acepta hexadecimal en mayúsculas o minúsculas; cualquier cadena de 7 a 40 hex con un dígito cuenta, aunque sea solo de dígitos.'
-        - 'Paso 5: solo se listan en «(espera a …)» las dependencias que aún no terminaron; una descartada sigue listada. Agregar una dependencia no terminada a una tarea cuya última etapa ya está ✅ se rechaza.'
-        - 'Paso 5: el bloqueo se comprueba al marcar una celda o cerrar la tarea; si después una dependencia retrocede, la tarea que ya terminó no se toca.'
-        - 'Paso 6: el estado del objetivo va en su última celda como «⏳ n/m tareas listas · criterio: …», «⏳ tareas listas, falta verificar el criterio · criterio: …», «✅ cumplido: <evidencia> · criterio: …» o «— descartado: <motivo> · criterio: …»; un objetivo sin tareas es «⏳ 0/0 tareas listas». Su ⏳ no exige rol.'
-        - 'Paso 6: cumplir un objetivo exige evidencia (mismas formas que un ✅) pero no exige que todas sus tareas estén terminadas; cumplir o descartar el foco lo desmarca. «En orden» es el orden de creación. Dos objetivos no pueden llamarse igual.'
-        - "Paso 6 / EPT-O05: el cierre de un objetivo se escribe «\U0001F3AF <objetivo>: cumplido — <evidencia>» o «\U0001F3AF <objetivo>: descartado — <motivo>»; un objetivo cerrado sigue en la tabla mientras tenga tareas abiertas."
-        - 'Paso 8 / EPF-C05: las tareas cerradas o descartadas salen de la tabla; el reporte en que desaparecen (respecto del anterior generado) trae su línea de cierre: esas son las «recién cerradas».'
-        - 'Paso 8 / EPF-C08: una afirmación es una línea de prosa (con o sin viñeta «- » o «* ») que empieza por «<tarea> · <etapa>: <estado>»; solo se compara la primera de cada línea.'
-        - 'Paso 8 / EPF-C07: teléfono = formato internacional con «+» o móvil chileno de 9 dígitos que empieza por 9; RUT = con puntos o sin ellos y guion con dígito verificador (no se valida el módulo 11). Los hallazgos dicen el tipo y la línea, nunca el valor. El modelo también rechaza escribir secretos en celdas, nombres, criterios y motivos.'
-        - 'Paso 7 / EPT-K04: las tablas de estado son la primera tabla del reporte y cada tabla posterior con la misma primera columna («Tarea»); con varios ciclos cada tabla va precedida por «**Ciclo «<nombre>»**». Si se le pasan los ciclos declarados, el lector exige que la primera tenga las etapas del proyecto y las demás las de algún ciclo; la tabla del proyecto se emite siempre.'
-        - 'Paso 7: las etapas del ciclo «proyecto» también pueden cambiarse con cambiarEtapasCiclo, con la misma regla de no perder avance; el nombre «proyecto» está reservado sin importar mayúsculas.'
-        - "Paso 6: en la tabla, una fila de tarea antes de toda fila \U0001F3AF (cuando la tabla tiene filas \U0001F3AF) no vale; «\U0001F3AF sin objetivo» va al final, una sola vez y con «—» en todas sus etapas; el foco debe ser la primera fila \U0001F3AF de su tabla."
-        - Celdas con «|» se escapan como «\|» en la tabla y el lector las desescapa.
+        - 'Paso 7 / EPT-K02 / EPT-K03: «sin empezar» no es uno de los cuatro estados; en el archivo es una celda vacía (null) que no cuenta como avance al cambiar de ciclo ni como terminada, y en el reporte se dibuja «❌ sin empezar».'
+        - 'Paso 2 / EPF-C03: «qué espera» se comprueba exigiendo, además del rol, al menos una palabra que no sea el rol ni relleno («espera», «de», «a»…). «del CI» cuenta como el rol «el CI». No se puede detectar un nombre propio: solo se exige un rol de la lista.'
+        - 'Paso 3 / EPF-C06: Producción en ✅ exige siempre «aprobado por <rol>» (con rol de la lista); una nota de ⏳ en Producción que menciona aprobación debe decir «espera aprobación de <rol>».'
+        - 'Paso 4 / EPF-C04 / EPT-S01: «sin uso real observado» se lee como: la evidencia del ✅ de Validación real no es más que la que ya tiene Producción en la misma fila; necesita evidencia propia.'
+        - "Paso 6 / EPT-O06: la última celda de la fila \U0001F3AF se escribe «<estado> <nota> · criterio: <criterio>»; un objetivo descartado se dibuja «— descartado: <motivo>». Un objetivo abierto sin tareas queda «⏳ 0/0 tareas listas»."
+        - "Paso 6 / EPT-O06: una tabla sin ninguna fila \U0001F3AF no se exige agrupada (reportes de proyectos sin objetivos)."
+        - "Paso 6 / EPF-C03: el ⏳ de una fila \U0001F3AF («n/m tareas listas») no exige rol: las reglas de bloqueo aplican a celdas de tareas."
+        - "Paso 8 / EPF-C05 / EPT-O05: los cierres se escriben con el nombre (lo que se lee), no con el id. Un objetivo se cierra en el texto con «\U0001F3AF <objetivo>: cumplido — <evidencia>» o «\U0001F3AF <objetivo>: descartado — <motivo>» (formato no dado por la receta)."
+        - 'Paso 8 / alcance «recién cerradas»: una tarea cerrada no vuelve a la tabla; sale como línea de cierre en el primer reporte después de cerrarse. Un objetivo cerrado sigue en la tabla mientras tenga tareas abiertas y sale con su línea de cierre cuando deja de mostrarse.'
+        - 'Paso 8 / EPF-C08: una afirmación «<tarea> · <etapa>: <estado>» se reconoce solo al comienzo de una línea (con o sin viñeta).'
+        - 'Paso 8 / EPF-C07: teléfono = número con prefijo «+» o con grupos separados por espacio o guion (un número corrido de 8+ cifras no se trata como teléfono para no confundirlo con un id de corrida); RUT = formato con puntos o con guion y dígito verificador, sin validar el dígito. Otros identificadores nacionales los agrega el proyecto con secretos_extra.'
+        - 'Paso 7 / EPT-K04: el lector reconoce el ciclo de cada tabla por sus columnas; con ciclos declarados, toda tabla debe ser de un ciclo y la primera la del proyecto. Sin ciclos declarados, solo revisa la primera tabla.'
+        - 'Paso 5 / EPT-D02: también se rechaza agregar una dependencia no terminada a una tarea cuya última etapa que aplica ya está en ✅, y una tarea con todas sus etapas en «—» cuenta como terminando.'
+        - 'Criterio de éxito (tarea en curso): ningún paso ni escenario la cubre; se hizo un registro mínimo (activar, pulso con fuente agente/subagente/comando, terminar, vida configurable) con ruta elegida por quien lo usa, sin CLI ni MCP.'
       aprobada: true
     - nombre: adaptada
       respuestas:
@@ -93,6 +87,9 @@ variantes:
         - EPT-I02
         - EPT-I03
         - EPT-I04
+        - EPT-R01
+        - EPT-R02
+        - EPT-R03
         - EPT-C01
         - EPT-C02
         - EPT-C03
@@ -105,44 +102,30 @@ variantes:
         - EPT-C11
         - EPT-C12
         - EPT-C13
-      lenguaje: Python 3 (solo biblioteca estándar; pruebas con unittest)
-      comando: python3 -m unittest discover -s tests -v
-      resultado: pruebas ✅ · escenarios con prueba 32/32
+      lenguaje: JavaScript (Node 26, ESM, solo módulos incorporados)
+      comando: node --test test/*.test.js
+      resultado: pruebas ✅ · escenarios con prueba 35/35
       supuestos:
-        - 'Paso 2 (⏳): «qué y de quién» se lee como «espera <algo> de <rol>» (también «del CI»); el rol sale de la lista base más los que agregue el proyecto, así un nombre de persona nunca vale.'
-        - 'Paso 2 (✅ evidencia): commit en hex de 7-40 con al menos un dígito (mayúsculas o minúsculas); semver X.Y.Z con prerelease/build opcional; «n/n pruebas» y «corrida <id>» tal como dice la receta.'
-        - 'Paso 3 / EPF-C06: como todas las etapas requieren aprobación, todo ✅ debe llevar además «aprobado por <rol>» con un rol de la lista; si falta, la celda va «⏳ espera aprobación de <rol>».'
-        - 'EPF-C04: el lector no puede saber si hubo uso real; una «Validación real» en ✅ debe nombrar el uso real observado («uso real …», no «sin uso real»); con solo la versión desplegada se rechaza.'
-        - 'EPT-M01: si la Puerta no está en ✅ con evidencia, Producción no puede ir en ✅ y, si va en ⏳, su nota debe nombrar la Puerta; un ❌ de Producción solo nombra su falla.'
-        - 'Paso 1: la «—» solo es estado al comienzo; dentro de la nota se acepta como guion. Una celda vacía o sin estado al inicio no vale.'
-        - 'Paso 1: la tarea se identifica por su nombre en la primera columna (id = nombre); no puede llevar | ( ) , · : para no romper la tabla ni «(espera a X)».'
-        - 'Paso 5: al crear una tarea sus celdas empiezan en «❌ sin empezar» (un ❌ nombrado) si no se dan.'
-        - 'Paso 5: cambiar las dependencias de una tarea cuya última etapa ya está en ✅ hacia una que no terminó también se rechaza (EPT-D02).'
-        - 'Paso 5 (lector): en un reporte una tarea puede esperar a otra que ya no está en la tabla (p. ej. descartada); solo se rechaza la que se espera a sí misma o un ciclo. La existencia la valida el modelo al escribir.'
-        - 'Paso 6: las afirmaciones «<tarea> · <etapa>: <estado>» y los cierres «<tarea>: cerrada|descartada — <motivo>» ocupan su propia línea (con viñeta - * • opcional) fuera de la primera tabla.'
-        - 'Paso 6 (secretos): teléfono = internacional con «+» y 8-15 dígitos, o móvil chileno 9XXXXXXXX; identificador nacional = RUT (con o sin puntos); xox se detecta como xox<letra>-…; el hallazgo dice tipo y línea sin repetir el valor.'
-        - 'Paso 7: .qdd/project/estado.yaml se escribe como JSON (que es YAML 1.2 válido) para no usar dependencias; la entrega revisa el reporte y, si tiene hallazgos, no escribe nada.'
-        - 'Paso 7: cada cierre se escribe en el reporte siguiente a cerrarse/descartarse y luego se marca reportado; el estado guarda los cerrados con su motivo.'
-        - 'Paso 7 / objetivos=no: la tabla del reporte es la del ciclo «proyecto»; si hubiera tareas de un ciclo propio van en tablas aparte después de la primera (el lector revisa solo la primera).'
-        - 'Paso 8: abreviaturas por defecto = 3 primeras letras alargadas hasta no repetirse (Dat Ent Pue Pro Val); un ciclo puede dar las suyas. Cuando hay ciclos propios el JSON trae también «proyecto».'
-        - 'Paso 8: los ⏳ y ❌ de un objetivo se cuentan en su fila como «pendientes» [{tarea, etapa, estado}] con las etapas de su ciclo.'
-        - 'Paso 8: la pregunta de un objetivo es «¿Cómo vamos con el objetivo «X»? Su criterio: … Avance, bloqueos y siguiente paso; actualiza las celdas de sus tareas con evidencia.».'
-        - 'Paso 8: sin objetivo las tareas van después de los objetivos y sin conector; el panel muestra las 10 tareas más nuevas (más las en curso).'
-        - 'Paso 9: la actividad vive en <QDD_HOME o ~/.local/share/qdd>/actividad/<hash del proyecto>.json; guarda solo un hash, no la ruta (puede llevar el nombre de la persona).'
-        - 'Paso 9: activar o pulsar con «quién» que no parece una herramienta ([A-Za-z0-9_.:/-], ≤64) es error EPT-C02; una tarea apagada por la vida no se revive con un pulso sin tarea, sí con uno que la nombra.'
-        - 'Paso 10: «comando» es una fuente conocida pero esta opción (solo-agente) la rechaza con EPT-C13; una fuente desconocida es EPT-C02.'
-        - 'Paso 11: el latido es tiempo de lectura: el ● es tenue en segundos pares y brillante en impares; destella en «acento» 1 s desde la lectura en que cambia ultimo_pulso (la primera lectura no destella). El estilo va en datos (punto/running), el texto es apto para mensajería.'
-        - 'Paso 12: el tope de 5 s es por panel (un Latidor por panel); el destello local ocurre con cada herramienta aunque la CLI no reciba pulso; la herramienta de tareas (Task/Agent, o «task» en OpenCode) late como subagente; el envío corre en un hilo y sus errores se ignoran.'
-        - 'CLI: «python3 -m estado_tareas [--proyecto P] [--central C] check|activa|pulso|termina|panel» hace de ''qdd estado …''.'
-        - 'Paso 9 / EPT-I01: la tabla, los cierres, las dependencias, «(espera a X)», la pregunta y el panel siguen nombrando la tarea por su id; el nombre se guarda en el archivo (y va como «nombre» en el JSON del panel). Un archivo viejo sin nombre usa el id como nombre.'
-        - 'Paso 9 / EPT-I01: crear es crear_tarea(nombre[, id][, es_otra]) o la CLI «crea»; agregar_tarea(id, …, nombre=None) es crear con id a mano y, sin nombre, el nombre es el id. Las escrituras de la CLI (celda, cierra, descarta, depende) cargan el archivo, aplican y guardan solo si no hubo error (Estado.editar).'
-        - 'Paso 9 / EPT-I01: códigos del error de una referencia que no existe: EPT-I01 al escribir una celda, cerrar, descartar o asignar objetivo/ciclo/foco; EPT-D01 si es una dependencia; EPT-C02 al declarar en curso o pulsar. Todos sugieren igual. Una tarea cerrada o descartada existe: escribirle es otro error (no está abierta).'
-        - 'Paso 9 / EPT-I02: «palabra» = tramo de letras y dígitos tras pasar a minúsculas y quitar tildes (NFD sin marcas, así á→a, ñ→n, ü→u); todo lo demás separa. Primero se quitan las vacías y las repetidas y luego se toman las 4 primeras.'
-        - 'Paso 9 / EPT-I02: «hasta 40 caracteres» quita palabras del final mientras el id pase de 40 (una sola palabra larga se corta en 40); el sufijo «-2», «-3»… se pone acortando la base para seguir en 40, y lo evita cualquier tarea que use el id (abierta, cerrada o descartada). Un nombre que no deja ninguna palabra no da id: hay que escribirlo a mano.'
-        - 'Paso 9 / EPT-I02: el formato de id escrito a mano ([a-z0-9]+(-[a-z0-9]+)*, ≤40) vale al crear tareas, objetivos y ciclos (por eso el ciclo y objetivo de la prueba EPT-K05 pasaron a «diseno»/«rediseno»); un id a mano que ya usa una tarea se rechaza siempre, aun confirmando que es otra. El nombre no puede ser vacío ni tener saltos de línea.'
-        - 'Paso 9 / EPT-I02: un objetivo se crea con agregar_objetivo(id, criterio, ciclo, nombre=None); sin nombre, el nombre es el id.'
-        - 'Paso 9 / EPT-I03: «en las palabras de su id o de su nombre» = en la unión de ambas; si la referencia no deja palabras, su parecido por palabras es 0. Levenshtein se mide entre la referencia en minúsculas (sin espacios al borde) y el id tal cual.'
-        - 'Paso 9 / EPT-I03: «orden del archivo» = las tareas abiertas en orden de creación y después las cerradas/descartadas en el orden en que se cerraron (así se escriben en estado.yaml); los objetivos, por orden de creación; los ciclos, como en su lista: «proyecto» y luego por nombre (también a igual parecido). Objetivos y ciclos cuentan como abiertos.'
-        - 'Paso 9 / EPT-I03: en la sugerencia cada uno va «id (nombre)» (sin nombre si es igual al id). El error lleva los ids en .sugerencias y en .parecidas si son parecidos (True) o la lista de abiertos (False).'
-        - 'Paso 9 / EPT-I04: el duplicado compara las palabras de los nombres con la regla del id (sin vacías, sin tildes, una vez cada una) y solo contra tareas abiertas; «cuyo id sería el de una abierta» es que el id base (sin sufijo) coincide con el de una abierta. Confirmar que es otra es es_otra=True (CLI --es-otra) y el error trae en .sugerencias las tareas repetidas.'
+        - 'Paso 7: .qdd/project/estado.yaml se escribe como JSON (que también es YAML 1.2) para no depender de un lector YAML.'
+        - 'Paso 7 / EPF-A01: la tabla del reporte lleva las tareas abiertas; las cerradas y descartadas salen como «<id>: cerrada — <motivo>» al desaparecer.'
+        - 'Paso 1: una celda nunca escrita se lee «❌ sin avance» (la receta no dice qué estado tiene una etapa sin avance).'
+        - 'Paso 9: las referencias (celda, cierre, en curso, dependencia, módulo) son ids; un nombre no resuelve a la tarea.'
+        - 'Pasos y decisiones: la primera columna de la tabla es el id de la tarea, para que cierres, afirmaciones y «espera a X» se comparen sin ambigüedad.'
+        - 'Paso 2: el «qué» de un ⏳ es cualquier palabra de la nota distinta del rol y de relleno (espera, de, del, a, la, el…); el «de quién» es un rol de la lista base o del proyecto, buscado por su núcleo sin artículo («el CI» → CI).'
+        - 'Paso 2: un commit se reconoce solo en hexadecimal en minúsculas, para no tomar palabras como «Decade1».'
+        - 'Paso 3: como todas las etapas requieren aprobación, todo ✅ lleva además «aprobado por <rol>».'
+        - 'EPF-C04: Validación real ✅ exige mencionar «uso real» y una evidencia propia que no sea la del despliegue de Producción.'
+        - 'EPT-M01: la celda que espera la Puerta se escribe «⏳ espera la Puerta con su evidencia de QA» (el ⏳ necesita un rol).'
+        - 'Paso 6 / EPF-C08: una afirmación «<tarea> · <etapa>: <estado>» se reconoce al comienzo de una línea (con o sin viñeta).'
+        - 'EPF-C07: teléfono = número internacional con «+» o móvil chileno de 9 dígitos que empieza en 9; RUT = 12.345.678-5 o 12345678-5 sin validar dígito verificador; los mensajes nombran el tipo y nunca repiten el valor.'
+        - 'Paso 10 / EPT-R0x: las fichas viven en .qdd/modules/<id>.json con {id, rutas, objetivo, decisiones, pruebas}; el cambio de ficha se mide contra la última versión commiteada antes de la última celda y HEAD.'
+        - 'Paso 10: pasados 200 ms sin objetivos ni foco, el lector deja de mirar las tareas restantes y lo dice.'
+        - 'Paso 11: la actividad vive en $QDD_HOME/actividad/<sha256 de la ruta del proyecto>.json (por defecto ~/.local/share/qdd).'
+        - 'Paso 11: un pulso con tarea apagada la enciende como si se activara (pasa a ser la última activada).'
+        - 'Paso 13 / EPT-C07: «las más nuevas» son las últimas 8 tareas abiertas en el orden del archivo.'
+        - 'EPT-C09: la primera lectura de un panel no destella; solo un cambio de pulso entre dos lecturas.'
+        - 'Paso 14 / EPT-C10: el destello local del panel ocurre con cada herramienta; solo el envío a la CLI se limita a uno cada 5 s por panel, guardado en un archivo por panel porque cada hook es un proceso nuevo.'
+        - 'EPT-C12: las herramientas de subagente son Task y Agent (Claude Code) y task (OpenCode).'
+        - 'EPT-K05 y EPT-A03: la variante no usa objetivos (crearObjetivo falla con objetivos: no); las pruebas de objetivos y ciclos propios activan objetivos en la configuración.'
+        - 'EPT-K05: una etapa de ciclo sin abreviatura declarada toma sus 3 primeras letras, alargándola si choca.'
       aprobada: true

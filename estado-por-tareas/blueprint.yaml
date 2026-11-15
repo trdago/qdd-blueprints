@@ -10,7 +10,7 @@
 #   qdd modules approve estado-por-tareas
 id: estado-por-tareas
 nombre: Estado por tareas
-version: 2.2.0
+version: 2.3.0
 requiere_qdd: 2.8.0
 licencia: Propietaria — uso interno
 reemplaza: [estado-por-frente]
@@ -74,6 +74,10 @@ vocabulario:
     definicion: >
       La clave fija de una tarea, un objetivo o un ciclo, con la que la nombran las dependencias, los cierres y quien
       escribe el archivo. El nombre es lo que se lee; el id no cambia.
+  - termino: ficha
+    definicion: El registro de un módulo del proyecto, con sus rutas, su objetivo operativo y sus decisiones.
+  - termino: última celda
+    definicion: La hora en que se escribió por última vez una celda de una tarea.
 
 parametros:
   - id: requieren_aprobacion
@@ -111,6 +115,9 @@ constantes:
   - id: parecido_duplicada
     valor: 80 %
     por_que: con menos, dos tareas distintas del mismo tema se toman por la misma; con más, la misma tarea escrita con otro orden o una palabra de más pasa como nueva
+  - id: tope_historial
+    valor: 200 ms
+    por_que: el lector automático y el contexto del agente corren a cada rato; más se nota al esperar, y alcanza para unas 10 tareas con módulo (una consulta al historial cuesta de 5 a 60 ms)
 
 preguntas:
   - id: etapas
@@ -257,9 +264,15 @@ preguntas:
           - "Un id escrito a mano al crear una tarea, un objetivo o un ciclo es de minúsculas, números y guiones simples, sin guion al comienzo ni al final, hasta {{largo_id}}; un id que ya estaba en el archivo sigue valiendo aunque no lo cumpla"
           - "Una referencia que no existe (al escribir una celda, cerrar, declarar en curso, asignar objetivo, ciclo o dependencia) es un error que no escribe nada y sugiere hasta 3 parecidos. El parecido de un candidato es la parte de las palabras de la referencia (con la regla del id) que están en las palabras de su id o de su nombre, o 0,9 si su id está a 1 o 2 letras de la referencia (distancia de Levenshtein, y menos de la mitad del largo del id), lo que sea mayor; parece desde 0,5. Se ordenan por parecido, el mayor primero; a igual parecido, los abiertos antes y después el orden del archivo. Si ninguno se parece, el error lista los abiertos en el orden del archivo, hasta 8 (los ciclos: «proyecto» y luego los demás por nombre). En la sugerencia, un nombre de más de {{largo_id}} se corta un carácter antes y lleva «…»"
           - "Una tarea nueva cuyo nombre repite el de una abierta (comparten al menos 2 palabras y el {{parecido_duplicada}} de las del nombre más corto, contando cada palabra una vez) o cuyo id sería el de una abierta no se crea: el error la nombra, salvo que quien crea confirme que es otra"
+          - "Una tarea puede declarar su módulo, el id de la ficha cuyas rutas toca; nombrar una ficha que no existe es un error que no escribe nada (qdd lo implementa desde 2.10.0)"
+          - "Cada celda escrita anota en su tarea la hora de su última celda; el módulo y esa hora son opcionales y un archivo sin ellos vale igual"
+          - "El lector automático avisa, sin bloquear, «tarea X: N commits en las rutas de su ficha Y desde su última celda»; un commit que no cambia lo que falta también cuenta"
+          - "Si las decisiones o el objetivo operativo de la ficha cambian después de la última celda de una tarea abierta, el contexto del agente le pide revisar el nombre de la tarea y el criterio de su objetivo"
+          - "El historial se consulta solo en el lector automático y en el contexto del agente, nunca en el panel; pasados {{tope_historial}}, solo las tareas del objetivo en foco, y lo dice. Sin historial, módulo o última celda, no opina"
         invariantes:
           - "Nombrar un id que no existe nunca crea una tarea ni un objetivo"
           - "Una referencia equivocada no cambia el archivo"
+          - "Avisar de commits o pedir revisar una tarea nunca bloquea, ni cambia su nombre ni su criterio"
         conformidad:
           - id: EPF-A01
             titulo: El archivo y la respuesta coinciden
@@ -303,6 +316,20 @@ preguntas:
             dado: una tarea abierta «claves-gemini» con nombre «Quitar claves de Gemini (GCP y GitHub)»
             cuando: se crea la tarea «Quitar claves de Gemini»
             entonces: no se crea y el error nombra «claves-gemini»; confirmando que es otra, se crea
+          - id: EPT-R01
+            titulo: Commits nuevos en su módulo
+            dado: la tarea abierta «cobro» con módulo «pagos», y después de su última celda 2 commits en las rutas de esa ficha y 1 en otra ruta
+            cuando: se corre el lector automático
+            entonces: "avisa «tarea cobro: 2 commits en las rutas de su ficha pagos desde su última celda» sin bloquear; una tarea sin módulo no aparece"
+          - id: EPT-R02
+            titulo: La ficha cambió después de la última celda
+            dado: la tarea abierta «cobro» con módulo «pagos», cuya ficha cambió sus decisiones después de su última celda
+            cuando: el agente pide el contexto del proyecto
+            entonces: el contexto le pide revisar el nombre de «cobro» y el criterio de su objetivo; si solo cambiaron las pruebas de la ficha, no la nombra
+          - id: EPT-R03
+            titulo: El módulo es una ficha que existe
+            cuando: una tarea declara el módulo «pago» y no hay ficha con ese id
+            entonces: es un error que lo nombra y el archivo no cambia
       - valor: tablero
         descripcion: Además en un tablero compartido.
         depende_de: ["Un tablero compartido con acceso para quienes leen el reporte"]
@@ -518,6 +545,11 @@ pasos:
     accion: Separar crear de nombrar, dar el id desde el nombre y rechazar con sugerencia toda referencia que no existe
     produce: un archivo en el que solo aparecen tareas creadas a propósito, con ids que da o valida la herramienta
     verifica: [EPT-I01, EPT-I02, EPT-I03, EPT-I04]
+  - id: tablero-al-dia
+    si: {destino: archivo}
+    accion: Guardar el módulo y la última celda de cada tarea, y avisar sin bloquear de sus commits nuevos y de los cambios de su ficha
+    produce: un lector que nombra las tareas con commits nuevos y un contexto que pide revisar las de una ficha que cambió
+    verifica: [EPT-R01, EPT-R02, EPT-R03]
   - id: actividad
     si: {en_curso: [todos, solo-agente]}
     accion: Registrar la tarea en curso fuera del proyecto, activando solo tareas abiertas y recibiendo pulsos con su fuente
